@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Player Pro - Ultimate AI Edition</title>
+    <title>Web Player Pro - Ultimate AI Edition V3</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
 </head>
 <body>
 
@@ -13,75 +14,78 @@
 
     <div class="player-container" id="playerContainer" tabindex="0">
         
+        <div class="video-wrapper" id="videoWrapper">
+            <video id="mainVideo" crossOrigin="anonymous" playsinline></video>
+        </div>
+
         <div class="brightness-overlay" id="brightnessOverlay"></div>
-
         <div class="spinner" id="spinner"></div>
-        
         <div class="toast-notification" id="toast"></div>
-
         <div class="gesture-feedback" id="gestureFeedback"></div>
 
-        <video id="mainVideo" crossOrigin="anonymous" preload="metadata" poster="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg">
-            <source src="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
-            عذراً، متصفحك لا يدعم تشغيل الفيديو.
-        </video>
+        <button id="skipIntroBtn" class="skip-intro-btn"><i class="fa-solid fa-forward"></i> تخطي المقدمة</button>
 
         <div class="controls-overlay" id="controls">
             
             <div class="progress-area" id="progressArea">
-                <canvas class="progress-canvas" id="progressCanvas"></canvas> <div class="progress-bar">
-                    <div class="buffer-bar" id="bufferBar"></div> <div class="progress-filled" id="progressBar"></div>
+                <canvas class="progress-canvas" id="progressCanvas"></canvas> 
+                <div class="progress-bar">
+                    <div class="buffer-bar" id="bufferBar"></div> 
+                    <div class="progress-filled" id="progressBar"></div>
                 </div>
                 <span class="progress-tooltip" id="progressTooltip">00:00</span>
             </div>
 
             <div class="buttons-row">
                 <div class="left-controls">
-                    <button id="playPauseBtn" class="control-btn" aria-label="تشغيل/إيقاف"><i class="fa-solid fa-play"></i></button>
+                    <button id="playPauseBtn" class="control-btn" aria-label="تشغيل"><i class="fa-solid fa-play"></i></button>
                     
                     <div class="volume-container">
-                        <button id="muteBtn" class="control-btn" aria-label="كتم الصوت"><i class="fa-solid fa-volume-high"></i></button>
-                        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" aria-label="مستوى الصوت">
+                        <button id="muteBtn" class="control-btn"><i class="fa-solid fa-volume-high"></i></button>
+                        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1">
                     </div>
 
                     <span class="time-display">
                         <span id="currentTime">00:00</span> / <span id="duration">00:00</span>
+                        <span id="liveBadge" class="live-badge">LIVE</span>
                     </span>
                 </div>
 
                 <div class="right-controls">
-                    <button id="audioBoostBtn" class="control-btn" aria-label="تحسين الحوار" title="معزز الحوار الذكي">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i>
-                    </button>
-
-                    <button id="screenshotBtn" class="control-btn" aria-label="لقطة شاشة" title="حفظ لقطة شاشة">
-                        <i class="fa-solid fa-camera"></i>
-                    </button>
+                    <button id="recordBtn" class="control-btn" title="حفظ مقطع (Clip)"><i class="fa-solid fa-video"></i></button>
                     
-                    <button id="aspectBtn" class="control-btn" aria-label="تغيير الأبعاد" title="تغيير نسبة العرض">
-                        <i class="fa-solid fa-expand"></i>
-                    </button>
-
-                    <div class="settings-container">
-                        <button id="settingsBtn" class="control-btn spin-icon" aria-label="الإعدادات"><i class="fa-solid fa-gear"></i></button>
-                        <ul class="settings-menu" id="settingsMenu">
-                            <li class="menu-header">سرعة التشغيل</li>
-                            <li data-speed="0.5">0.5x</li>
-                            <li data-speed="1" class="active">عادي (1x)</li>
-                            <li data-speed="1.25">1.25x</li>
-                            <li data-speed="1.5">1.5x</li>
-                            <li data-speed="2">2.0x</li>
-                            
-                            <li class="menu-header">فلاتر الصورة</li>
-                            <li data-filter="normal" class="active">طبيعي</li>
-                            <li data-filter="contrast">تباين عالي</li>
-                            <li data-filter="warm">دافئ (حماية عين)</li>
-                            <li data-filter="bw">أبيض وأسود</li>
+                    <div class="dropdown-container">
+                        <button id="audioMenuBtn" class="control-btn" title="إعدادات الصوت"><i class="fa-solid fa-headphones"></i></button>
+                        <ul class="dropdown-menu audio-menu" id="audioMenu">
+                            <li id="boostToggle">معزز الحوار (Boost) <span>OFF</span></li>
+                            <li id="audio8DToggle">صوت محيطي (8D) <span>OFF</span></li>
                         </ul>
                     </div>
+
+                    <div class="dropdown-container">
+                        <button id="videoEffectsBtn" class="control-btn" title="ألوان وتأثيرات"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+                        <div class="dropdown-menu effects-menu" id="effectsMenu">
+                            <label>السطوع <input type="range" data-filter="brightness" min="50" max="150" value="100"></label>
+                            <label>التباين <input type="range" data-filter="contrast" min="50" max="150" value="100"></label>
+                            <label>التشبع <input type="range" data-filter="saturate" min="0" max="200" value="100"></label>
+                            <label>تدرج <input type="range" data-filter="hue-rotate" min="0" max="360" value="0"></label>
+                            <button id="resetEffects" class="reset-btn">إعادة تعيين</button>
+                        </div>
+                    </div>
+
+                    <button id="settingsBtn" class="control-btn spin-icon"><i class="fa-solid fa-gear"></i></button>
+                    <ul class="settings-menu" id="settingsMenu">
+                        <li class="menu-header">السرعة</li>
+                        <li data-speed="0.5">0.5x</li>
+                        <li data-speed="1" class="active">عادي (1x)</li>
+                        <li data-speed="1.5">1.5x</li>
+                        <li data-speed="2">2.0x</li>
+                        <li class="divider"></li>
+                        <li id="ecoModeToggle">وضع التوفير (Eco) <span class="toggle-icon">Off</span></li>
+                    </ul>
                     
-                    <button id="pipBtn" class="control-btn" aria-label="صورة داخل صورة"><i class="fa-solid fa-clone"></i></button>
-                    <button id="fullscreenBtn" class="control-btn" aria-label="ملء الشاشة"><i class="fa-solid fa-expand"></i></button>
+                    <button id="pipBtn" class="control-btn"><i class="fa-solid fa-clone"></i></button>
+                    <button id="fullscreenBtn" class="control-btn"><i class="fa-solid fa-expand"></i></button>
                 </div>
             </div>
         </div>

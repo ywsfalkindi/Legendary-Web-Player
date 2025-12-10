@@ -1,552 +1,517 @@
-// script.js - Ultimate Edition V2.0 (OOP & Optimized)
+// script.js - Ultimate Edition V3.0 (HLS + AI Features)
 
-class VideoPlayer {
+class WebPlayerPro {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
         this.video = document.getElementById('mainVideo');
         this.ambientCanvas = document.getElementById('ambientCanvas');
-        this.ctx = this.ambientCanvas.getContext('2d', { alpha: false });
+        this.ctx = this.ambientCanvas.getContext('2d', { alpha: false, desynchronized: true });
         
-        // UI Elements
-        this.controls = {
+        // Configuration & State
+        this.state = {
+            hls: null,
+            audioCtx: null,
+            sourceNode: null,
+            gainNode: null,
+            pannerNode: null,
+            compressorNode: null,
+            mediaRecorder: null,
+            recordedChunks: [],
+            isRecording: false,
+            audioBoost: false,
+            audio8D: false,
+            ecoMode: false,
+            brightness: 1,
+            controlsTimer: null,
+            ambientId: null,
+            pannerId: null,
+            lastTap: 0
+        };
+
+        // Cache DOM Elements
+        this.ui = {
             playBtn: document.getElementById('playPauseBtn'),
             bigPlayBtn: document.getElementById('bigPlayBtn'),
             progressBar: document.getElementById('progressBar'),
-            bufferBar: document.getElementById('bufferBar'), // New
+            bufferBar: document.getElementById('bufferBar'),
             progressArea: document.getElementById('progressArea'),
-            progressTooltip: document.getElementById('progressTooltip'),
+            tooltip: document.getElementById('progressTooltip'),
             timeDisplay: document.getElementById('currentTime'),
             durationDisplay: document.getElementById('duration'),
             fullscreenBtn: document.getElementById('fullscreenBtn'),
+            pipBtn: document.getElementById('pipBtn'),
             volumeBtn: document.getElementById('muteBtn'),
             volumeSlider: document.getElementById('volumeSlider'),
+            skipIntroBtn: document.getElementById('skipIntroBtn'),
+            toast: document.getElementById('toast'),
+            overlay: document.getElementById('brightnessOverlay'),
+            feedback: document.getElementById('gestureFeedback'),
+            liveBadge: document.getElementById('liveBadge'),
+            // Menus
             settingsBtn: document.getElementById('settingsBtn'),
             settingsMenu: document.getElementById('settingsMenu'),
-            pipBtn: document.getElementById('pipBtn'),
-            audioBoostBtn: document.getElementById('audioBoostBtn'), // New
-            screenshotBtn: document.getElementById('screenshotBtn'), // New
-            aspectBtn: document.getElementById('aspectBtn'), // New
-            toast: document.getElementById('toast'),
-            spinner: document.getElementById('spinner'),
-            brightnessOverlay: document.getElementById('brightnessOverlay'), // New
-            gestureFeedback: document.getElementById('gestureFeedback') // New
-        };
-
-        // State
-        this.state = {
-            isMouseDown: false,
-            controlsTimeout: null,
-            ambientId: null,
-            lastAmbientDraw: 0,
-            audioContext: null,
-            audioSource: null,
-            compressorNode: null,
-            gainNode: null,
-            isAudioBoosted: false,
-            brightness: 1, // 1 = 100%
-            aspectRatioMode: 0, // 0: Contain, 1: Cover, 2: Fill
-            aspectModes: ['', 'aspect-cover', 'aspect-fill']
+            audioMenuBtn: document.getElementById('audioMenuBtn'),
+            audioMenu: document.getElementById('audioMenu'),
+            effectsBtn: document.getElementById('videoEffectsBtn'),
+            effectsMenu: document.getElementById('effectsMenu'),
+            recordBtn: document.getElementById('recordBtn'),
+            // Effects Inputs
+            effectsInputs: document.querySelectorAll('.effects-menu input'),
+            resetEffectsBtn: document.getElementById('resetEffects')
         };
 
         this.init();
     }
 
     init() {
-        this.loadSettings();
+        this.initHLS(); // Start Streaming Engine
         this.setupEventListeners();
-        this.setupMobileGestures();
+        this.loadSettings();
         
-        // Set Canvas Size initially
-        this.ambientCanvas.width = 150; // Low res for performance
-        this.ambientCanvas.height = 85;
-    }
-
-    // --- 1. Settings & Storage ---
-    loadSettings() {
-        // Volume
-        const savedVol = localStorage.getItem('v-volume');
-        if (savedVol !== null) {
-            this.video.volume = parseFloat(savedVol);
-            this.controls.volumeSlider.value = savedVol;
+        // Start Ambient Light Loop
+        if ('requestVideoFrameCallback' in this.video) {
+            this.video.requestVideoFrameCallback(this.updateAmbientLight.bind(this));
+        } else {
+            this.loopAmbientLight();
         }
-        
-        // Speed
-        const savedSpeed = localStorage.getItem('v-speed');
-        if (savedSpeed) this.setSpeed(parseFloat(savedSpeed));
+    }
 
-        // Time (Resume)
-        const savedTime = localStorage.getItem('v-time');
-        if (savedTime) {
-            this.video.currentTime = parseFloat(savedTime);
-            this.showToast(`استكمال من ${this.formatTime(this.video.currentTime)}`);
+    // --- 1. HLS & Streaming Engine ---
+    initHLS() {
+        // Example Stream (HLS Test Source) - Replace with your own URL
+        const streamURL = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'; 
+        
+        if (Hls.isSupported()) {
+            this.state.hls = new Hls({
+                capLevelToPlayerSize: true, // Auto quality based on size
+                startLevel: -1 // Auto start
+            });
+            this.state.hls.loadSource(streamURL);
+            this.state.hls.attachMedia(this.video);
+            this.state.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                this.showToast('Ready to Stream 🚀');
+            });
+            this.state.hls.on(Hls.Events.LEVEL_SWITCHED, (e, data) => {
+                const level = this.state.hls.levels[data.level];
+                if(level) this.showToast(`Quality: ${level.height}p`);
+            });
+        } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
+            this.video.src = streamURL; // Safari Fallback
+        } else {
+            // MP4 Fallback
+            this.video.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+        }
+    }
+
+    // --- 2. Audio Engine (Web Audio API) ---
+    initAudio() {
+        if (this.state.audioCtx) return;
+        
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        this.state.audioCtx = new AudioContext();
+        
+        // Nodes
+        this.state.sourceNode = this.state.audioCtx.createMediaElementSource(this.video);
+        this.state.gainNode = this.state.audioCtx.createGain(); // For Boost
+        this.state.compressorNode = this.state.audioCtx.createDynamicsCompressor(); // For Dialog
+        this.state.pannerNode = this.state.audioCtx.createStereoPanner(); // For 8D
+        
+        // Compressor Settings (Voice Clarity)
+        this.state.compressorNode.threshold.value = -50;
+        this.state.compressorNode.knee.value = 40;
+        this.state.compressorNode.ratio.value = 12;
+
+        // Default Graph: Source -> Panner -> Destination
+        this.state.sourceNode.connect(this.state.pannerNode);
+        this.state.pannerNode.connect(this.state.audioCtx.destination);
+    }
+
+    toggleAudioBoost() {
+        this.initAudio();
+        this.state.audioBoost = !this.state.audioBoost;
+        
+        // Re-route Graph
+        this.state.sourceNode.disconnect();
+        this.state.pannerNode.disconnect();
+        this.state.compressorNode.disconnect();
+        this.state.gainNode.disconnect();
+
+        if (this.state.audioBoost) {
+            // Path: Source -> Compressor -> Gain -> Panner -> Dest
+            this.state.gainNode.gain.value = 1.5; // +50% Vol
+            this.state.sourceNode.connect(this.state.compressorNode);
+            this.state.compressorNode.connect(this.state.gainNode);
+            this.state.gainNode.connect(this.state.pannerNode);
+            this.state.pannerNode.connect(this.state.audioCtx.destination);
+            document.querySelector('#boostToggle span').innerText = 'ON';
+            document.querySelector('#boostToggle span').style.color = 'var(--accent-color)';
+            this.showToast('Audio Boost: Active 🔊');
+        } else {
+            // Normal Path
+            this.state.sourceNode.connect(this.state.pannerNode);
+            this.state.pannerNode.connect(this.state.audioCtx.destination);
+            document.querySelector('#boostToggle span').innerText = 'OFF';
+            document.querySelector('#boostToggle span').style.color = 'inherit';
+            this.showToast('Audio Boost: Normal');
+        }
+    }
+
+    toggle8DAudio() {
+        this.initAudio();
+        this.state.audio8D = !this.state.audio8D;
+        const badge = document.querySelector('#audio8DToggle span');
+
+        if (this.state.audio8D) {
+            badge.innerText = 'ON';
+            badge.style.color = 'var(--accent-color)';
+            this.showToast('8D Audio: Active 🎧');
+            
+            // Start Oscillation
+            let startTime = this.state.audioCtx.currentTime;
+            const oscillate = () => {
+                if (!this.state.audio8D) {
+                    this.state.pannerNode.pan.value = 0;
+                    return;
+                }
+                // Sine wave from -1 to 1 every 8 seconds
+                const time = this.state.audioCtx.currentTime - startTime;
+                this.state.pannerNode.pan.value = Math.sin(time / 2); 
+                this.state.pannerId = requestAnimationFrame(oscillate);
+            };
+            oscillate();
+        } else {
+            badge.innerText = 'OFF';
+            badge.style.color = 'inherit';
+            cancelAnimationFrame(this.state.pannerId);
+            this.state.pannerNode.pan.value = 0;
+            this.showToast('8D Audio: Disabled');
+        }
+    }
+
+    // --- 3. Visuals & Ambient Light ---
+    updateAmbientLight(now, metadata) {
+        if (this.state.ecoMode || this.video.paused) {
+             if('requestVideoFrameCallback' in this.video) 
+                 this.video.requestVideoFrameCallback(this.updateAmbientLight.bind(this));
+             return;
         }
 
-        // Filter
-        const savedFilter = localStorage.getItem('v-filter');
-        if (savedFilter) this.applyFilter(savedFilter);
-
-        this.updateVolumeIcon();
+        this.ctx.drawImage(this.video, 0, 0, this.ambientCanvas.width, this.ambientCanvas.height);
+        this.video.requestVideoFrameCallback(this.updateAmbientLight.bind(this));
     }
 
-    saveSetting(key, value) {
-        localStorage.setItem(`v-${key}`, value);
-    }
-
-    // --- 2. Event Listeners ---
-    setupEventListeners() {
-        // Playback
-        this.controls.playBtn.addEventListener('click', () => this.togglePlay());
-        this.controls.bigPlayBtn.addEventListener('click', () => this.togglePlay());
-        this.video.addEventListener('click', () => this.togglePlay());
-        this.video.addEventListener('play', () => this.updatePlayState(true));
-        this.video.addEventListener('pause', () => this.updatePlayState(false));
-        
-        // Time & Buffer
-        this.video.addEventListener('timeupdate', () => this.handleTimeUpdate());
-        this.video.addEventListener('progress', () => this.updateBuffer());
-        
-        // Seek
-        this.controls.progressArea.addEventListener('click', (e) => this.seek(e));
-        this.controls.progressArea.addEventListener('mousemove', (e) => this.handleSeekHover(e));
-        this.controls.progressArea.addEventListener('mousedown', () => this.state.isMouseDown = true);
-        document.addEventListener('mouseup', () => this.state.isMouseDown = false);
-        this.controls.progressArea.addEventListener('mousemove', (e) => {
-            if (this.state.isMouseDown) this.seek(e);
-        });
-
-        // Volume
-        this.controls.volumeSlider.addEventListener('input', (e) => this.setVolume(e.target.value));
-        this.controls.volumeBtn.addEventListener('click', () => this.toggleMute());
-
-        // Fullscreen & PIP
-        this.controls.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
-        this.container.addEventListener('dblclick', () => this.toggleFullscreen());
-        this.controls.pipBtn.addEventListener('click', () => this.togglePip());
-
-        // Settings Menu
-        this.controls.settingsBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.controls.settingsMenu.classList.toggle('show');
-        });
-        document.addEventListener('click', (e) => {
-            if (!this.controls.settingsMenu.contains(e.target) && e.target !== this.controls.settingsBtn) {
-                this.controls.settingsMenu.classList.remove('show');
+    loopAmbientLight() {
+        // Fallback for older browsers
+        const loop = () => {
+            if (!this.state.ecoMode && !this.video.paused) {
+                this.ctx.drawImage(this.video, 0, 0, this.ambientCanvas.width, this.ambientCanvas.height);
             }
-        });
-
-        // Settings Items (Speed & Filter)
-        document.querySelectorAll('#settingsMenu li[data-speed]').forEach(item => {
-            item.addEventListener('click', () => {
-                this.setSpeed(parseFloat(item.dataset.speed));
-                this.highlightMenuItem(item, 'data-speed');
-            });
-        });
-        document.querySelectorAll('#settingsMenu li[data-filter]').forEach(item => {
-            item.addEventListener('click', () => {
-                this.applyFilter(item.dataset.filter);
-                this.highlightMenuItem(item, 'data-filter');
-            });
-        });
-
-        // Shortcuts
-        document.addEventListener('keydown', (e) => this.handleShortcuts(e));
-
-        // Loading Errors
-        this.video.addEventListener('waiting', () => this.container.classList.add('buffering'));
-        this.video.addEventListener('playing', () => this.container.classList.remove('buffering'));
-
-        // Controls Visibility
-        this.container.addEventListener('mousemove', () => this.showControls());
-        this.container.addEventListener('touchstart', () => this.showControls());
-
-        // --- NEW FEATURES LISTENERS ---
-        this.controls.audioBoostBtn.addEventListener('click', () => this.toggleAudioBoost());
-        this.controls.screenshotBtn.addEventListener('click', () => this.takeSnapshot());
-        this.controls.aspectBtn.addEventListener('click', () => this.toggleAspectRatio());
+            requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
     }
 
-    // --- 3. Logic & Methods ---
+    toggleEcoMode() {
+        this.state.ecoMode = !this.state.ecoMode;
+        const icon = document.querySelector('#ecoModeToggle .toggle-icon');
+        
+        if (this.state.ecoMode) {
+            this.ambientCanvas.style.opacity = 0;
+            if (this.state.hls) this.state.hls.currentLevel = 0; // Lowest quality
+            icon.innerText = 'ON';
+            icon.style.color = '#00ff00';
+            this.showToast('Eco Mode: ON 🍃');
+        } else {
+            this.ambientCanvas.style.opacity = 0.5;
+            if (this.state.hls) this.state.hls.currentLevel = -1; // Auto
+            icon.innerText = 'OFF';
+            icon.style.color = 'inherit';
+            this.showToast('Eco Mode: OFF');
+        }
+    }
 
+    // --- 4. Logic & Features ---
     togglePlay() {
         if (this.video.paused) {
-            this.video.play();
-            this.initAudioSystem(); // Init audio context on first interaction
+            this.video.play().catch(e => console.error(e));
+            this.initAudio(); // Initialize audio context on first user interaction
         } else {
             this.video.pause();
         }
     }
 
-    updatePlayState(isPlaying) {
-        if (isPlaying) {
-            this.container.classList.remove('paused');
-            this.controls.playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-            this.controls.bigPlayBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-            this.startAmbientLight();
-        } else {
-            this.container.classList.add('paused');
-            this.controls.playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-            this.controls.bigPlayBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-            this.stopAmbientLight();
+    recordClip() {
+        // Uses MediaRecorder to capture the video stream
+        if (this.state.isRecording) {
+            this.state.mediaRecorder.stop();
+            return;
         }
-    }
 
-    handleTimeUpdate() {
-        const current = this.video.currentTime;
-        const duration = this.video.duration || 0;
-        const progressPercent = (current / duration) * 100;
-        
-        this.controls.progressBar.style.width = `${progressPercent}%`;
-        this.controls.timeDisplay.innerText = this.formatTime(current);
-        this.controls.durationDisplay.innerText = this.formatTime(duration);
-        
-        this.saveSetting('time', current);
-    }
-
-    updateBuffer() {
-        if (this.video.duration > 0) {
-            for (let i = 0; i < this.video.buffered.length; i++) {
-                if (this.video.buffered.start(i) <= this.video.currentTime && this.video.buffered.end(i) >= this.video.currentTime) {
-                    const bufferedEnd = this.video.buffered.end(i);
-                    const width = (bufferedEnd / this.video.duration) * 100;
-                    this.controls.bufferBar.style.width = `${width}%`;
-                    break;
-                }
-            }
-        }
-    }
-
-    seek(e) {
-        const width = this.controls.progressArea.clientWidth;
-        const clickX = e.offsetX;
-        const duration = this.video.duration;
-        this.video.currentTime = (clickX / width) * duration;
-    }
-
-    handleSeekHover(e) {
-        const width = this.controls.progressArea.clientWidth;
-        const hoverX = e.offsetX;
-        const time = (hoverX / width) * this.video.duration;
-        const percent = (hoverX / width) * 100;
-        
-        this.controls.progressTooltip.style.left = `${percent}%`;
-        this.controls.progressTooltip.innerText = this.formatTime(time);
-    }
-
-    setVolume(value) {
-        this.video.volume = value;
-        this.video.muted = value === '0';
-        this.updateVolumeIcon();
-        this.saveSetting('volume', value);
-        this.showToast(`Volume: ${Math.round(value * 100)}%`);
-    }
-
-    toggleMute() {
-        this.video.muted = !this.video.muted;
-        this.controls.volumeSlider.value = this.video.muted ? 0 : this.video.volume || 1;
-        this.updateVolumeIcon();
-    }
-
-    updateVolumeIcon() {
-        const vol = this.video.volume;
-        const btn = this.controls.volumeBtn;
-        if (this.video.muted || vol === 0) btn.innerHTML = '<i class="fa-solid fa-volume-xmark"></i>';
-        else if (vol < 0.5) btn.innerHTML = '<i class="fa-solid fa-volume-low"></i>';
-        else btn.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
-    }
-
-    setSpeed(speed) {
-        this.video.playbackRate = speed;
-        this.saveSetting('speed', speed);
-        this.showToast(`Speed: ${speed}x`);
-    }
-
-    applyFilter(filterName) {
-        this.video.className = ''; // Reset classes
-        // Re-apply aspect ratio class if exists
-        if(this.state.aspectRatioMode > 0) {
-            this.video.classList.add(this.state.aspectModes[this.state.aspectRatioMode]);
-        }
-        
-        if (filterName !== 'normal') {
-            this.video.classList.add(`filter-${filterName}`);
-        }
-        this.saveSetting('filter', filterName);
-    }
-
-    highlightMenuItem(clickedItem, dataAttr) {
-        document.querySelectorAll(`#settingsMenu li[${dataAttr}]`).forEach(item => item.classList.remove('active'));
-        clickedItem.classList.add('active');
-        this.controls.settingsMenu.classList.remove('show');
-    }
-
-    toggleFullscreen() {
-        if (!document.fullscreenElement) {
-            this.container.requestFullscreen();
-            this.controls.fullscreenBtn.innerHTML = '<i class="fa-solid fa-compress"></i>';
-        } else {
-            document.exitFullscreen();
-            this.controls.fullscreenBtn.innerHTML = '<i class="fa-solid fa-expand"></i>';
-        }
-    }
-
-    togglePip() {
-        if (document.pictureInPictureElement) document.exitPictureInPicture();
-        else this.video.requestPictureInPicture();
-    }
-
-    // --- 4. Advanced Features (Boost, Ambient, Screenshot) ---
-
-    // A. Ambient Light (Optimized with RequestAnimationFrame)
-    startAmbientLight() {
-        if (this.state.ambientId) cancelAnimationFrame(this.state.ambientId);
-        
-        const draw = (timestamp) => {
-            // Throttle to 30fps (every ~33ms) to save CPU
-            if (timestamp - this.state.lastAmbientDraw > 33) {
-                if (!this.video.paused && !this.video.ended) {
-                    this.ctx.drawImage(this.video, 0, 0, this.ambientCanvas.width, this.ambientCanvas.height);
-                }
-                this.state.lastAmbientDraw = timestamp;
-            }
-            this.state.ambientId = requestAnimationFrame(draw);
-        };
-        this.state.ambientId = requestAnimationFrame(draw);
-    }
-
-    stopAmbientLight() {
-        if (this.state.ambientId) {
-            cancelAnimationFrame(this.state.ambientId);
-            this.state.ambientId = null;
-        }
-    }
-
-    // B. Audio Booster (Web Audio API)
-    initAudioSystem() {
-        if (this.state.audioContext) return;
-        
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.state.audioContext = new AudioContext();
-        
-        // Create nodes
-        this.state.audioSource = this.state.audioContext.createMediaElementSource(this.video);
-        this.state.compressorNode = this.state.audioContext.createDynamicsCompressor();
-        this.state.gainNode = this.state.audioContext.createGain();
-
-        // Configure Compressor for "Dialogue Boost"
-        this.state.compressorNode.threshold.value = -50;
-        this.state.compressorNode.knee.value = 40;
-        this.state.compressorNode.ratio.value = 12;
-        this.state.compressorNode.attack.value = 0;
-        this.state.compressorNode.release.value = 0.25;
-
-        // Connect graph: Source -> Destination (Normal) initially
-        this.state.audioSource.connect(this.state.audioContext.destination);
-    }
-
-    toggleAudioBoost() {
-        if (!this.state.audioContext) this.initAudioSystem();
-        
-        this.state.isAudioBoosted = !this.state.isAudioBoosted;
-        
-        // Disconnect everything
-        this.state.audioSource.disconnect();
-        this.state.compressorNode.disconnect();
-        this.state.gainNode.disconnect();
-
-        if (this.state.isAudioBoosted) {
-            // Path: Source -> Compressor -> Gain (Boost) -> Destination
-            this.state.gainNode.gain.value = 1.5; // +50% volume
-            this.state.audioSource.connect(this.state.compressorNode);
-            this.state.compressorNode.connect(this.state.gainNode);
-            this.state.gainNode.connect(this.state.audioContext.destination);
-            
-            this.controls.audioBoostBtn.classList.add('active');
-            this.showToast('Audio Boost: ON 🚀');
-        } else {
-            // Path: Source -> Destination
-            this.state.audioSource.connect(this.state.audioContext.destination);
-            this.controls.audioBoostBtn.classList.remove('active');
-            this.showToast('Audio Boost: OFF');
-        }
-    }
-
-    // C. Screenshot
-    takeSnapshot() {
-        const canvas = document.createElement('canvas');
-        canvas.width = this.video.videoWidth;
-        canvas.height = this.video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(this.video, 0, 0, canvas.width, canvas.height);
-        
+        // Try to capture stream from video (Cross-Origin might block this)
+        // Fallback: Capture from Canvas (if no subtitles/overlay needed)
         try {
-            const dataURL = canvas.toDataURL('image/png');
-            const link = document.createElement('a');
-            link.download = `snapshot_${Date.now()}.png`;
-            link.href = dataURL;
-            link.click();
-            this.showToast('تم حفظ لقطة الشاشة 📸');
+            // Note: captureStream might require flags in some browsers or CORS set correctly
+            const stream = this.video.captureStream ? this.video.captureStream() : this.video.mozCaptureStream();
+            
+            this.state.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+            this.state.recordedChunks = [];
+
+            this.state.mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) this.state.recordedChunks.push(e.data);
+            };
+
+            this.state.mediaRecorder.onstop = () => {
+                const blob = new Blob(this.state.recordedChunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `clip_${Date.now()}.webm`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                this.state.isRecording = false;
+                this.ui.recordBtn.classList.remove('recording');
+                this.showToast('Clip Saved! 💾');
+            };
+
+            this.state.mediaRecorder.start();
+            this.state.isRecording = true;
+            this.ui.recordBtn.classList.add('recording');
+            this.showToast('Recording... (Max 10s)');
+
+            // Auto stop after 10 seconds
+            setTimeout(() => {
+                if(this.state.isRecording) this.state.mediaRecorder.stop();
+            }, 10000);
+
         } catch (e) {
-            this.showToast('فشل حفظ الصورة (CORS Error)');
+            this.showToast('Error: CORS protects this video from recording');
+            console.error(e);
         }
     }
 
-    // D. Aspect Ratio
-    toggleAspectRatio() {
-        this.state.aspectRatioMode = (this.state.aspectRatioMode + 1) % 3;
-        
-        // Remove old classes
-        this.video.classList.remove('aspect-cover', 'aspect-fill');
-        
-        // Add new class if needed
-        const newClass = this.state.aspectModes[this.state.aspectRatioMode];
-        if (newClass) this.video.classList.add(newClass);
-
-        const modesNames = ['أصلي', 'تكبير (Cover)', 'تعبئة (Fill)'];
-        this.showToast(`العرض: ${modesNames[this.state.aspectRatioMode]}`);
+    applyColorGrade() {
+        const filters = [];
+        this.ui.effectsInputs.forEach(input => {
+            const unit = input.dataset.filter === 'hue-rotate' ? 'deg' : '%';
+            filters.push(`${input.dataset.filter}(${input.value}${unit})`);
+        });
+        this.video.style.filter = filters.join(' ');
     }
 
-    // --- 5. Mobile Gestures (Touch) ---
-    setupMobileGestures() {
-        let touchStartX = 0;
-        let touchStartY = 0;
-        let isSeeking = false;
-        
-        this.container.addEventListener('touchstart', (e) => {
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-        });
+    // --- 5. Events & Inputs ---
+    setupEventListeners() {
+        // Playback
+        const toggle = () => this.togglePlay();
+        this.ui.playBtn.onclick = toggle;
+        this.ui.bigPlayBtn.onclick = toggle;
+        this.video.onclick = toggle;
 
-        this.container.addEventListener('touchmove', (e) => {
-            e.preventDefault(); // Prevent scrolling
-            if (!touchStartX || !touchStartY) return;
+        this.video.onplay = () => {
+            this.container.classList.remove('paused');
+            this.ui.playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+            this.ui.bigPlayBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+        };
+        this.video.onpause = () => {
+            this.container.classList.add('paused');
+            this.ui.playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+            this.ui.bigPlayBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+        };
 
-            const currentX = e.touches[0].clientX;
-            const currentY = e.touches[0].clientY;
-            const diffX = touchStartX - currentX;
-            const diffY = touchStartY - currentY;
+        // Time Update (Smart Resume Logic + Intro Skip)
+        this.video.ontimeupdate = () => {
+            const curr = this.video.currentTime;
+            const dur = this.video.duration || 0;
             
-            // Check direction
-            if (Math.abs(diffX) > Math.abs(diffY)) {
-                // Horizontal (Seek)
-                if (Math.abs(diffX) > 10) {
-                    const seekTime = diffX > 0 ? -0.5 : 0.5; // Sensitivity
-                    this.video.currentTime += seekTime;
-                    this.showFeedback(diffX > 0 ? '⏪' : '⏩');
+            // Update UI
+            this.ui.progressBar.style.width = `${(curr/dur)*100}%`;
+            this.ui.timeDisplay.innerText = this.formatTime(curr);
+            this.ui.durationDisplay.innerText = this.formatTime(dur);
+            
+            // Mock Smart Intro Skip (Appear between 0:05 and 0:15)
+            if (curr > 5 && curr < 15) this.ui.skipIntroBtn.classList.add('show');
+            else this.ui.skipIntroBtn.classList.remove('show');
+
+            localStorage.setItem('v-resume-time', curr);
+        };
+
+        // Seeking
+        this.ui.progressArea.onclick = (e) => {
+            const width = this.ui.progressArea.clientWidth;
+            const clickX = e.offsetX;
+            const duration = this.video.duration;
+            this.video.currentTime = (clickX / width) * duration;
+        };
+        this.ui.progressArea.onmousemove = (e) => {
+             const width = this.ui.progressArea.clientWidth;
+             const hoverX = e.offsetX;
+             const time = (hoverX / width) * this.video.duration;
+             this.ui.tooltip.style.left = `${e.offsetX}px`;
+             this.ui.tooltip.innerText = this.formatTime(time);
+        };
+
+        // Volume
+        this.ui.volumeSlider.oninput = (e) => {
+            this.video.volume = e.target.value;
+            this.video.muted = e.target.value == 0;
+            this.updateVolumeUI();
+        };
+        this.ui.volumeBtn.onclick = () => {
+            this.video.muted = !this.video.muted;
+            this.updateVolumeUI();
+        };
+
+        // Menus Toggles
+        const toggleMenu = (btn, menu) => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                // Close others
+                document.querySelectorAll('.dropdown-menu, .settings-menu').forEach(m => {
+                    if(m !== menu) m.classList.remove('show');
+                });
+                menu.classList.toggle('show');
+            };
+        };
+        toggleMenu(this.ui.settingsBtn, this.ui.settingsMenu);
+        toggleMenu(this.ui.audioMenuBtn, this.ui.audioMenu);
+        toggleMenu(this.ui.effectsBtn, this.ui.effectsMenu);
+        
+        document.onclick = (e) => {
+            if(!e.target.closest('.control-btn') && !e.target.closest('.dropdown-menu') && !e.target.closest('.settings-menu')) {
+                 document.querySelectorAll('.dropdown-menu, .settings-menu').forEach(m => m.classList.remove('show'));
+            }
+        };
+
+        // Feature Buttons
+        document.getElementById('boostToggle').onclick = () => this.toggleAudioBoost();
+        document.getElementById('audio8DToggle').onclick = () => this.toggle8DAudio();
+        document.getElementById('ecoModeToggle').onclick = () => this.toggleEcoMode();
+        this.ui.recordBtn.onclick = () => this.recordClip();
+        this.ui.skipIntroBtn.onclick = () => {
+            this.video.currentTime += 85; // Skip typical anime intro length
+            this.showToast('Intro Skipped ⏩');
+        };
+        this.ui.fullscreenBtn.onclick = () => {
+            if(!document.fullscreenElement) this.container.requestFullscreen();
+            else document.exitFullscreen();
+        };
+
+        // Effects
+        this.ui.effectsInputs.forEach(input => {
+            input.oninput = () => this.applyColorGrade();
+        });
+        this.ui.resetEffectsBtn.onclick = () => {
+            this.ui.effectsInputs.forEach(i => i.value = i.getAttribute('value'));
+            this.applyColorGrade();
+        };
+
+        // Keyboard Shortcuts
+        document.onkeydown = (e) => {
+            if (e.target.tagName === 'INPUT') return;
+            switch(e.key.toLowerCase()) {
+                case ' ': e.preventDefault(); this.togglePlay(); break;
+                case 'f': this.container.requestFullscreen(); break;
+                case 'm': this.ui.volumeBtn.click(); break;
+                case 'arrowright': this.video.currentTime += 5; this.showFeedback('⏩ +5s'); break;
+                case 'arrowleft': this.video.currentTime -= 5; this.showFeedback('⏪ -5s'); break;
+            }
+        };
+
+        // Gestures (Touch)
+        this.setupGestures();
+    }
+
+    setupGestures() {
+        let touchX, touchY;
+        this.container.ontouchstart = (e) => {
+            touchX = e.touches[0].clientX;
+            touchY = e.touches[0].clientY;
+        };
+        this.container.ontouchmove = (e) => {
+            e.preventDefault();
+            if(!touchX) return;
+            const diffX = touchX - e.touches[0].clientX;
+            const diffY = touchY - e.touches[0].clientY;
+            
+            if(Math.abs(diffX) > Math.abs(diffY)) {
+                if(Math.abs(diffX) > 10) {
+                    this.video.currentTime += diffX > 0 ? -0.2 : 0.2; // Seek
                 }
             } else {
-                // Vertical (Volume/Brightness)
-                const containerWidth = this.container.clientWidth;
-                if (touchStartX < containerWidth / 2) {
-                    // Left Side: Brightness
-                    if (Math.abs(diffY) > 5) {
-                        const change = diffY > 0 ? 0.02 : -0.02;
-                        this.state.brightness = Math.min(1, Math.max(0.2, this.state.brightness + change));
-                        // Inverse logic for overlay opacity (0 brightness = 0.8 opacity black)
-                        this.controls.brightnessOverlay.style.opacity = 1 - this.state.brightness;
-                        this.showFeedback(`🔆 ${Math.round(this.state.brightness * 100)}%`);
-                    }
-                } else {
-                    // Right Side: Volume
-                    if (Math.abs(diffY) > 5) {
-                         const change = diffY > 0 ? 0.02 : -0.02;
-                         const newVol = Math.min(1, Math.max(0, this.video.volume + change));
-                         this.setVolume(newVol);
-                         this.controls.volumeSlider.value = newVol;
-                         this.showFeedback(`🔊 ${Math.round(newVol * 100)}%`);
-                    }
-                }
+                 if(touchX > this.container.clientWidth / 2) {
+                     // Volume (Right side)
+                     const v = Math.min(1, Math.max(0, this.video.volume + (diffY > 0 ? 0.02 : -0.02)));
+                     this.video.volume = v;
+                     this.ui.volumeSlider.value = v;
+                     this.showFeedback(`🔊 ${Math.round(v*100)}%`);
+                 } else {
+                     // Brightness (Left side)
+                     this.state.brightness = Math.min(1, Math.max(0.2, this.state.brightness + (diffY > 0 ? 0.02 : -0.02)));
+                     this.ui.overlay.style.opacity = 1 - this.state.brightness;
+                     this.showFeedback(`🔆 ${Math.round(this.state.brightness*100)}%`);
+                 }
             }
-            // Reset for smooth drag
-            touchStartX = currentX;
-            touchStartY = currentY;
-        });
-
+            touchX = e.touches[0].clientX;
+            touchY = e.touches[0].clientY;
+        };
+        
         // Double Tap
-        let lastTap = 0;
-        this.container.addEventListener('touchend', (e) => {
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
-            if (tapLength < 300 && tapLength > 0) {
-                // Double Tap Detected
-                const width = this.container.clientWidth;
+        this.container.ontouchend = (e) => {
+            const now = new Date().getTime();
+            if (now - this.state.lastTap < 300) {
+                // Double tap
                 const x = e.changedTouches[0].clientX;
-                if (x < width / 3) {
+                if (x < this.container.clientWidth / 3) {
                     this.video.currentTime -= 10;
                     this.showFeedback('⏪ -10s');
-                } else if (x > (width * 2) / 3) {
+                } else if (x > (this.container.clientWidth * 2) / 3) {
                     this.video.currentTime += 10;
                     this.showFeedback('⏩ +10s');
                 } else {
                     this.togglePlay();
                 }
             }
-            lastTap = currentTime;
-        });
+            this.state.lastTap = now;
+        };
     }
 
-    showFeedback(text) {
-        const el = this.controls.gestureFeedback;
-        el.innerText = text;
-        el.classList.add('show');
-        clearTimeout(this.gestureTimeout);
-        this.gestureTimeout = setTimeout(() => el.classList.remove('show'), 500);
-    }
-
-    // --- 6. Helpers ---
-    showToast(msg) {
-        this.controls.toast.innerText = msg;
-        this.controls.toast.classList.add('show');
-        setTimeout(() => this.controls.toast.classList.remove('show'), 2000);
-    }
-
-    showControls() {
-        this.container.classList.remove('hide-cursor');
-        this.container.classList.add('show-controls');
-        clearTimeout(this.state.controlsTimeout);
-        this.state.controlsTimeout = setTimeout(() => {
-            if (!this.video.paused) {
-                this.container.classList.remove('show-controls');
-                this.container.classList.add('hide-cursor');
-            }
-        }, 3000);
-    }
-
-    handleShortcuts(e) {
-        if (document.activeElement.tagName === 'INPUT') return;
-        
-        switch(e.key.toLowerCase()) {
-            case ' ':
-            case 'k': e.preventDefault(); this.togglePlay(); break;
-            case 'f': this.toggleFullscreen(); break;
-            case 'm': this.toggleMute(); break;
-            case 'arrowright': this.video.currentTime += 5; this.showToast("+ 5s"); break;
-            case 'arrowleft': this.video.currentTime -= 5; this.showToast("- 5s"); break;
-            case 'arrowup': 
-                e.preventDefault(); 
-                this.setVolume(Math.min(1, this.video.volume + 0.1)); 
-                this.controls.volumeSlider.value = this.video.volume;
-                break;
-            case 'arrowdown': 
-                e.preventDefault(); 
-                this.setVolume(Math.max(0, this.video.volume - 0.1)); 
-                this.controls.volumeSlider.value = this.video.volume;
-                break;
+    // --- Helpers ---
+    loadSettings() {
+        // Smart Resume
+        const savedTime = localStorage.getItem('v-resume-time');
+        if (savedTime && parseFloat(savedTime) > 10) {
+            this.video.currentTime = parseFloat(savedTime) - 5; // Rewind 5s context
+            this.showToast('Resuming playback... 🔄');
         }
     }
 
-    formatTime(time) {
-        if (isNaN(time)) return "00:00";
-        let seconds = Math.floor(time % 60);
-        let minutes = Math.floor(time / 60) % 60;
-        let hours = Math.floor(time / 3600);
-        seconds = seconds < 10 ? `0${seconds}` : seconds;
-        minutes = minutes < 10 ? `0${minutes}` : minutes;
-        if (hours == 0) return `${minutes}:${seconds}`;
-        return `${hours}:${minutes}:${seconds}`;
+    updateVolumeUI() {
+        const v = this.video.volume;
+        if(this.video.muted || v === 0) this.ui.volumeBtn.innerHTML = '<i class="fa-solid fa-volume-xmark"></i>';
+        else if(v < 0.5) this.ui.volumeBtn.innerHTML = '<i class="fa-solid fa-volume-low"></i>';
+        else this.ui.volumeBtn.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
+    }
+
+    formatTime(s) {
+        if(isNaN(s)) return "00:00";
+        return new Date(s * 1000).toISOString().substr(11, 8).replace(/^00:/, '');
+    }
+
+    showToast(msg) {
+        this.ui.toast.innerText = msg;
+        this.ui.toast.classList.add('show');
+        setTimeout(() => this.ui.toast.classList.remove('show'), 2000);
+    }
+    
+    showFeedback(text) {
+        this.ui.feedback.innerText = text;
+        this.ui.feedback.classList.add('show');
+        setTimeout(() => this.ui.feedback.classList.remove('show'), 500);
     }
 }
 
-// Initialize
+// Launch
 document.addEventListener('DOMContentLoaded', () => {
-    window.player = new VideoPlayer('playerContainer');
+    window.player = new WebPlayerPro('playerContainer');
 });
