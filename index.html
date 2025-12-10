@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Web Player Pro - Ultimate AI Edition V5 (Phoenix) - An advanced web video player with AI features, interactive transcript, and cinematic audio.">
+    <meta property="og:title" content="Web Player Pro - Ultimate AI Edition V5 (Phoenix)">
+    <meta property="og:description" content="Experience the future of web video with AI-powered features like smart zoom, interactive transcripts, and immersive audio.">
     <title>Web Player Pro - Ultimate AI Edition V5 (Phoenix)</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -14,7 +17,7 @@
     <div class="player-container" id="playerContainer" tabindex="0" role="application" aria-label="مشغل فيديو متطور">
         
         <div class="video-wrapper" id="videoWrapper">
-            <video id="mainVideo" crossOrigin="anonymous" playsinline></video>
+            <video id="mainVideo" crossOrigin="anonymous" playsinline preload="auto"></video>
             <div id="smartCaptions" class="smart-captions"></div>
         </div>
 
@@ -77,7 +80,7 @@
                     </div>
 
                     <div class="dropdown-container">
-                        <button id="audioMenuBtn" class="control-btn" title="هندسة الصوت"><i class="fa-solid fa-headphones-simple"></i></button>
+                        <button id="audioMenuBtn" class="control-btn" title="هندسة الصوت" aria-haspopup="menu"><i class="fa-solid fa-headphones-simple"></i></button>
                         <ul class="dropdown-menu audio-menu" id="audioMenu">
                             <li class="menu-header">Cinema DSP</li>
                             <li id="dialogueBoostToggle" role="menuitemcheckbox" aria-checked="false">تعزيز الحوار <span>OFF</span></li>
@@ -93,7 +96,7 @@
                     <button id="recordBtn" class="control-btn" title="قص مشهد (Clip)"><i class="fa-solid fa-scissors"></i></button>
                     
                     <div class="dropdown-container">
-                        <button id="settingsBtn" class="control-btn spin-icon" title="الإعدادات"><i class="fa-solid fa-gear"></i></button>
+                        <button id="settingsBtn" class="control-btn spin-icon" title="الإعدادات" aria-haspopup="menu"><i class="fa-solid fa-gear"></i></button>
                         <ul class="settings-menu" id="settingsMenu">
                             <li class="menu-header">العرض</li>
                             <li id="theaterModeToggle" role="menuitemcheckbox" aria-checked="false">وضع المسرح الغامر <span>OFF</span></li>

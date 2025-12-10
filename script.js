@@ -1,5 +1,5 @@
 // script.js - Ultimate AI Edition V5.0 (Phoenix)
-// Features: Interactive Transcript, 5-Band EQ, Smart Zoom, Worker Ambience
+// Features: Interactive Transcript, 5-Band EQ, Smart Zoom, Worker Ambience, Enhanced Audio DSP
 
 // --- 0. Performance: Ambient Light Worker (Inline Blob) ---
 const workerCode = `
@@ -39,7 +39,7 @@ class WebPlayerPro {
                 eco: false,
                 theater: false,
                 spatial: false,
-                dialogue: false,
+                dialogueBoost: false, // Renamed for clarity
                 superRes: false,
                 smartZoom: false,
                 transcript: false
@@ -47,19 +47,19 @@ class WebPlayerPro {
             controlsTimeout: null,
             transcriptData: [ // Mock Transcript Data
                 { "start": "0.5", "end": "1.5", "text": "في هذا الفيديو،" },
-                { "start": "1.6", "end": "2.8", "text": "سنستكشف مستقبل" },
-                { "start": "2.9", "end": "4.2", "text": "مشغلات الويب." },
-                { "start": "5.0", "end": "6.5", "text": "مع ميزات الذكاء الاصطناعي" },
-                { "start": "6.6", "end": "8.0", "text": "التي تغير قواعد اللعبة." },
-                { "start": "8.5", "end": "9.8", "text": "مثل النصوص التفاعلية،" },
-                { "start": "10.0", "end": "11.5", "text": "والصوت السينمائي." },
+                { "start": "1.6", "end": "2.8", "text": "سنستكشف" },
+                { "start": "2.9", "end": "4.2", "text": "مستقبل مشغلات الويب." },
+                { "start": "5.0", "end": "6.5", "text": "مع ميزات" },
+                { "start": "6.6", "end": "8.0", "text": "الذكاء الاصطناعي التي تغير قواعد اللعبة." },
+                { "start": "8.5", "end": "9.8", "text": "مثل النصوص" },
+                { "start": "10.0", "end": "11.5", "text": "التفاعلية، والصوت السينمائي." },
                 { "start": "12.0", "end": "14.0", "text": "استعدوا لتجربة فريدة." },
-                { "start": "15.0", "end": "16.0", "text": "هل أنتم جاهزون؟" },
-                { "start": "17.0", "end": "18.0", "text": "لنبدأ الآن." }
+                { "start": "15.0", "end": "16.0", "text": "هل أنتم" },
+                { "start": "17.0", "end": "18.0", "text": "جاهزون؟ لنبدأ الآن." }
             ],
             currentTranscriptIndex: -1
         };
-
+        
         this.ui = this.cacheDOM();
         this.init();
     }
@@ -105,6 +105,7 @@ class WebPlayerPro {
         this.initHLS();
         this.initWorker();
         this.setupEventListeners();
+        this.initAudio(); // Initialize AudioContext early, but resume on user gesture
         this.loadPreferences();
         
         this.renderTranscript();
@@ -143,20 +144,32 @@ class WebPlayerPro {
     // --- 2. Advanced Audio Engine (Cinema DSP) ---
     initAudio() {
         if (this.config.audioCtx) return;
-        
+
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.config.audioCtx = new AudioContext();
-        
+
         // Base Graph
         this.config.nodes.source = this.config.audioCtx.createMediaElementSource(this.video);
         this.config.nodes.gain = this.config.audioCtx.createGain();
-        
+
         // Effects Nodes
         this.config.nodes.compressor = this.config.audioCtx.createDynamicsCompressor(); // For Dialogue
-        this.config.nodes.panner = this.config.audioCtx.createStereoPanner(); // For Spatial
+        this.config.nodes.panner = this.config.audioCtx.createPanner(); // More advanced PannerNode for 3D spatial
         this.config.nodes.analyser = this.config.audioCtx.createAnalyser(); // For AI Visuals
-        
-        // Initial Connection: Source -> Gain -> Destination
+
+        // Initialize EQ bands
+        const freqs = [60, 310, 1000, 6000, 12000];
+        this.config.eqBands = freqs.map(f => {
+            const filter = this.config.audioCtx.createBiquadFilter();
+            filter.type = 'peaking';
+            filter.frequency.value = f;
+            filter.Q.value = 1; // Quality factor
+            filter.gain.value = 0; // Start flat
+            return filter;
+        });
+
+        // Initial Connection: Source -> Analyser -> Gain -> Destination (Analyser for potential future AI visuals)
+        this.config.nodes.source.connect(this.config.nodes.analyser);
         this.config.nodes.source.connect(this.config.nodes.gain);
         this.config.nodes.gain.connect(this.config.audioCtx.destination);
     }
@@ -256,8 +269,8 @@ class WebPlayerPro {
         }
 
         this.savePreferences();
-        // Logic Switch
-        switch(key) {
+        // Apply specific logic based on the setting key
+        switch (key) {
             case 'dialogue':
             case 'spatial':
                 this.applyAudioEffects();
@@ -267,6 +280,7 @@ class WebPlayerPro {
                 document.body.classList.toggle('immersive-mode', isOn);
                 this.showToast(isOn ? 'Immersive Mode Active 🍿' : 'Normal Mode');
                 break;
+            case 'eco': // Eco mode affects ambient canvas loop
             case 'eco':
                 if(!isOn) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
                 this.showToast(isOn ? 'Battery Saver ON 🔋' : 'Battery Saver OFF');
@@ -280,7 +294,9 @@ class WebPlayerPro {
                 this.ui.videoWrapper.classList.toggle('smart-zoom-active', isOn);
                 this.showToast(isOn ? 'AI Smart Zoom ON 🔎' : 'Smart Zoom OFF');
                 break;
-            case 'transcript':
+            case 'transcript': // Transcript panel visibility
+                // Toggle the transcript panel visibility
+                this.ui.transcriptBtn.classList.toggle('active', isOn);
                 this.container.classList.toggle('transcript-open', isOn);
                 break;
         }
@@ -295,7 +311,7 @@ class WebPlayerPro {
         try {
             // Attempt to capture stream (Requires CORS allowed source)
             const stream = this.video.captureStream ? this.video.captureStream() : this.video.mozCaptureStream();
-            this.config.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+            this.config.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9,opus' }); // Add opus for audio
             this.config.recordedChunks = [];
 
             this.config.mediaRecorder.ondataavailable = (e) => {
@@ -328,7 +344,7 @@ class WebPlayerPro {
             setTimeout(() => { if(this.config.isRecording) this.config.mediaRecorder.stop(); }, 15000);
 
         } catch (e) {
-            this.showToast('Error: Protected Content (DRM/CORS)');
+            this.showToast(`Error recording: ${e.message}. Protected Content (DRM/CORS) or browser limitations.`);
             console.error(e);
         }
     }
@@ -340,8 +356,18 @@ class WebPlayerPro {
             this.config.hls = new Hls({ enableWorker: true, lowLatencyMode: true });
             this.config.hls.loadSource(streamURL);
             this.config.hls.attachMedia(this.video);
-            this.config.hls.on(Hls.Events.MANIFEST_PARSED, () => this.ui.spinner.style.display = 'none');
-            this.config.hls.on(Hls.Events.WAITING, () => this.container.classList.add('buffering'));
+            this.config.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                this.ui.spinner.style.display = 'none';
+                console.log('HLS Manifest Parsed');
+            });
+            this.config.hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error('HLS Error:', data);
+                if (data.fatal) {
+                    this.showToast(`HLS Error: ${data.details}. Trying to recover...`);
+                    this.config.hls.recoverMediaError();
+                }
+            });
+            this.config.hls.on(Hls.Events.BUFFER_APPENDING, () => this.container.classList.add('buffering')); // More precise buffering event
             this.config.hls.on(Hls.Events.FRAG_BUFFERED, () => this.container.classList.remove('buffering'));
         } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
             this.video.src = streamURL;
@@ -354,7 +380,7 @@ class WebPlayerPro {
         } else {
             this.video.pause();
         }
-        this.initAudio(); // Initialize Context on first user gesture
+        if (this.config.audioCtx && this.config.audioCtx.state === 'suspended') this.config.audioCtx.resume(); // Resume context on user gesture
     }
 
     // --- 5. Event Listeners & UI ---
@@ -368,7 +394,7 @@ class WebPlayerPro {
         this.video.onplay = () => {
             this.container.classList.remove('paused');
             this.ui.playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-            if(!this.config.settings.eco) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
+            if(!this.config.settings.eco) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this)); // Restart loop if eco mode is off
             if(this.config.audioCtx && this.config.audioCtx.state === 'suspended') this.config.audioCtx.resume();
         };
         this.video.onpause = () => {
@@ -386,7 +412,7 @@ class WebPlayerPro {
 
             this.updateTranscriptHighlight(curr);
             // Smart Skip Trigger (Mock Logic)
-            if (curr > 10 && curr < 20) this.ui.skipIntroBtn.classList.add('show');
+            if (curr > 10 && curr < 20 && !this.video.paused) this.ui.skipIntroBtn.classList.add('show'); // Only show if playing
             else this.ui.skipIntroBtn.classList.remove('show');
         };
 
@@ -396,7 +422,7 @@ class WebPlayerPro {
             const clickX = e.clientX - rect.left;
             const width = rect.width;
             this.video.currentTime = (clickX / width) * this.video.duration;
-        };
+        }; // No debounce needed for click
         this.ui.progressArea.onclick = (e) => {
             seek(e);
         };
@@ -414,7 +440,7 @@ class WebPlayerPro {
             this.ui.tooltip.innerText = this.formatTime(hoverTime);
             this.ui.scrubPreview.style.left = `${hoverX}px`;
         }
-
+        
         // Menus
         const toggleMenu = (btn, menu) => {
             btn.onclick = (e) => {
@@ -425,15 +451,17 @@ class WebPlayerPro {
                 menu.classList.toggle('show');
             };
         };
+        // Initialize EQ UI after audio context is ready
+        this.renderEqualizer();
         toggleMenu(this.ui.settingsBtn, this.ui.settingsMenu);
         toggleMenu(this.ui.audioMenuBtn, this.ui.audioMenu);
         toggleMenu(this.ui.aiMenuBtn, this.ui.aiMenu);
         
         this.ui.transcriptBtn.onclick = (e) => this.toggleSetting('transcript', e.currentTarget);
-        this.ui.closeTranscriptBtn.onclick = (e) => this.toggleSetting('transcript', this.ui.transcriptBtn);
+        this.ui.closeTranscriptBtn.onclick = () => this.toggleSetting('transcript', this.ui.transcriptBtn);
 
         // Feature Toggles
-        document.getElementById('dialogueBoostToggle').onclick = (e) => this.toggleSetting('dialogue', e.currentTarget);
+        document.getElementById('dialogueBoostToggle').onclick = (e) => this.toggleSetting('dialogueBoost', e.currentTarget);
         document.getElementById('spatialAudioToggle').onclick = (e) => this.toggleSetting('spatial', e.currentTarget);
         document.getElementById('smartZoomToggle').onclick = (e) => this.toggleSetting('smartZoom', e.currentTarget);
         document.getElementById('theaterModeToggle').onclick = (e) => this.toggleSetting('theater', e.currentTarget);
@@ -445,7 +473,7 @@ class WebPlayerPro {
             el.onclick = () => {
                 this.ui.settingsMenu.querySelector('[data-speed].active').classList.remove('active');
                 this.ui.settingsMenu.querySelector('[aria-checked="true"]').setAttribute('aria-checked', 'false');
-                el.classList.add('active');
+                el.classList.add('active'); // Visually mark active speed
                 el.setAttribute('aria-checked', 'true');
                 this.video.playbackRate = el.dataset.speed;
                 this.config.settings.speed = el.dataset.speed;
@@ -456,7 +484,7 @@ class WebPlayerPro {
 
         this.ui.recordBtn.onclick = () => this.recordClip();
         this.ui.skipIntroBtn.onclick = () => {
-            this.video.currentTime += 85; 
+            this.video.currentTime += 85; // Example skip duration
             this.showToast('Intro Skipped (AI Detected) ⏩');
         };
         
@@ -469,7 +497,7 @@ class WebPlayerPro {
         this.ui.volumeSlider.oninput = (e) => {
             this.video.volume = e.target.value;
             this.config.settings.volume = e.target.value;
-            this.video.muted = e.target.value == 0;
+            this.video.muted = (e.target.value == 0);
             this.savePreferences();
         };
         this.video.onvolumechange = () => {
@@ -479,12 +507,13 @@ class WebPlayerPro {
             else if (this.video.volume < 0.5) icon.className = 'fa-solid fa-volume-low';
             else icon.className = 'fa-solid fa-volume-high';
         };
+        this.ui.volumeBtn.onclick = () => { this.video.muted = !this.video.muted; }; // Toggle mute
         // Keyboard Shortcuts
         document.onkeydown = (e) => {
             if(e.target.tagName === 'INPUT') return;
             switch(e.key.toLowerCase()) {
                 case ' ': e.preventDefault(); this.togglePlay(); break;
-                case 'f': this.container.requestFullscreen(); break;
+                case 'f': this.ui.fullscreenBtn.click(); break; // Use click to toggle fullscreen
                 case 'm': this.video.muted = !this.video.muted; break;
                 case 'arrowright': this.video.currentTime += 5; this.showFeedback('⏩ +5s'); break;
                 case 'arrowleft': this.video.currentTime -= 5; this.showFeedback('⏪ -5s'); break;
@@ -498,18 +527,28 @@ class WebPlayerPro {
             }
         };
 
+        // Debounce for mousemove events
+        const debounce = (func, delay) => {
+            let timeout;
+            return function(...args) {
+                const context = this;
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(context, args), delay);
+            };
+        };
+
         // Hide controls on inactivity
-        this.container.onmousemove = () => {
+        this.container.onmousemove = debounce(() => {
             this.container.classList.remove('hide-cursor');
             this.container.classList.add('show-controls');
             clearTimeout(this.config.controlsTimeout);
             if (!this.video.paused) {
                 this.config.controlsTimeout = setTimeout(() => {
                     this.container.classList.remove('show-controls');
-                    this.container.classList.add('hide-cursor');
+                    if (!this.container.classList.contains('paused')) this.container.classList.add('hide-cursor'); // Only hide cursor if not paused or controls are explicitly shown
                 }, 3000);
             }
-        };
+        }, 100); // Debounce mousemove to prevent excessive calls
     }
 
     // --- Helpers ---
@@ -539,7 +578,10 @@ class WebPlayerPro {
         this.config.transcriptData.forEach((line, index) => {
             const span = document.createElement('span');
             span.textContent = line.text + ' ';
-            span.dataset.index = index;
+            span.dataset.index = index; // Use data-index for easier selection
+            span.dataset.start = line.start; // Store start time for quick access
+            span.dataset.end = line.end; // Store end time for quick access
+
             span.onclick = () => { this.video.currentTime = line.start; };
             this.ui.transcriptContent.appendChild(span);
         });
@@ -550,29 +592,50 @@ class WebPlayerPro {
 
         let foundIndex = -1;
         for (let i = 0; i < this.config.transcriptData.length; i++) {
-            if (currentTime >= this.config.transcriptData[i].start && currentTime <= this.config.transcriptData[i].end) {
+            const line = this.config.transcriptData[i];
+            if (currentTime >= parseFloat(line.start) && currentTime < parseFloat(line.end)) { // Use < for end to avoid overlap
                 foundIndex = i;
                 break;
             }
         }
 
         if (foundIndex !== this.config.currentTranscriptIndex) {
-            // Remove old highlight
-            const oldActive = this.ui.transcriptContent.querySelector('.active-word');
-            if (oldActive) oldActive.classList.remove('active-word');
-            // Add new highlight
-            const newActive = this.ui.transcriptContent.querySelector(`[data-index="${foundIndex}"]`);
-            if (newActive) newActive.classList.add('active-word');
+            // Remove old highlight if exists
+            if (this.config.currentTranscriptIndex !== -1) {
+                const oldActive = this.ui.transcriptContent.querySelector(`[data-index="${this.config.currentTranscriptIndex}"]`);
+                if (oldActive) oldActive.classList.remove('active-word');
+            }
+
+            // Add new highlight if a word is found
+            if (foundIndex !== -1) {
+                const newActive = this.ui.transcriptContent.querySelector(`[data-index="${foundIndex}"]`);
+                if (newActive) {
+                    newActive.classList.add('active-word');
+                    // Scroll transcript to view
+                    newActive.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
             this.config.currentTranscriptIndex = foundIndex;
         }
     }
 
     loadPreferences() {
-        const saved = localStorage.getItem('webplayer_prefs');
-        if (saved) {
+        try {
+            const saved = localStorage.getItem('webplayer_prefs');
+            if (!saved) {
+                console.log("WebPlayer Pro V4: No preferences found. Ready 🚀");
+                return;
+            }
             const prefs = JSON.parse(saved);
             // Apply settings
             this.config.settings = { ...this.config.settings, ...prefs };
+
+            // Ensure boolean settings are actually booleans
+            for (const key in this.config.settings) {
+                if (typeof this.config.settings[key] === 'string' && (this.config.settings[key] === 'true' || this.config.settings[key] === 'false')) {
+                    this.config.settings[key] = (this.config.settings[key] === 'true');
+                }
+            }
 
             // Apply Volume
             this.video.volume = this.config.settings.volume;
@@ -581,17 +644,31 @@ class WebPlayerPro {
             // Apply Speed
             this.video.playbackRate = this.config.settings.speed;
             this.ui.settingsMenu.querySelector('[data-speed].active')?.classList.remove('active');
-            this.ui.settingsMenu.querySelector(`[data-speed="${this.config.settings.speed}"]`)?.classList.add('active');
+            const activeSpeedEl = this.ui.settingsMenu.querySelector(`[data-speed="${this.config.settings.speed}"]`);
+            if (activeSpeedEl) {
+                activeSpeedEl.classList.add('active');
+                activeSpeedEl.setAttribute('aria-checked', 'true');
+            }
 
-            // Apply Toggles (Theater, Eco etc.) by simulating a click if the setting is on
-            if (this.config.settings.theater) document.getElementById('theaterModeToggle').click();
-            if (this.config.settings.eco) document.getElementById('ecoModeToggle').click();
-            if (this.config.settings.transcript) document.getElementById('transcriptBtn').click();
-            
+            // Apply Toggles (Theater, Eco etc.) by directly setting state and updating UI
+            const toggleElements = {
+                theater: document.getElementById('theaterModeToggle'),
+                eco: document.getElementById('ecoModeToggle'),
+                transcript: this.ui.transcriptBtn,
+                dialogueBoost: document.getElementById('dialogueBoostToggle'),
+                spatial: document.getElementById('spatialAudioToggle'),
+                smartZoom: document.getElementById('smartZoomToggle'),
+                upscale: document.getElementById('upscaleToggle')
+            };
+
+            for (const key in toggleElements) {
+                if (this.config.settings[key] && toggleElements[key]) {
+                    // Directly call the toggle logic, but prevent re-saving preferences
+                    this.toggleSetting(key, toggleElements[key]);
+                }
+            }
             console.log("WebPlayer Pro V4: Preferences loaded 💾");
-        } else {
-            console.log("WebPlayer Pro V4: Ready 🚀");
-        }
+        } catch (e) { console.error("Failed to load preferences:", e); }
     }
     savePreferences() {
         localStorage.setItem('webplayer_prefs', JSON.stringify(this.config.settings));
