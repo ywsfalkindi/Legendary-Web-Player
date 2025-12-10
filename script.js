@@ -1,5 +1,5 @@
-// script.js - Ultimate AI Edition V4.0
-// Features: Worker-based Ambience, Cinema DSP Audio, Accessibility, Smart Skip
+// script.js - Ultimate AI Edition V5.0 (Phoenix)
+// Features: Interactive Transcript, 5-Band EQ, Smart Zoom, Worker Ambience
 
 // --- 0. Performance: Ambient Light Worker (Inline Blob) ---
 const workerCode = `
@@ -28,6 +28,7 @@ class WebPlayerPro {
             hls: null,
             audioCtx: null,
             nodes: {}, // Audio Nodes
+            eqBands: [], // Equalizer bands
             worker: null,
             mediaRecorder: null,
             recordedChunks: [],
@@ -39,8 +40,24 @@ class WebPlayerPro {
                 theater: false,
                 spatial: false,
                 dialogue: false,
-                superRes: false
-            }
+                superRes: false,
+                smartZoom: false,
+                transcript: false
+            },
+            controlsTimeout: null,
+            transcriptData: [ // Mock Transcript Data
+                { "start": "0.5", "end": "1.5", "text": "في هذا الفيديو،" },
+                { "start": "1.6", "end": "2.8", "text": "سنستكشف مستقبل" },
+                { "start": "2.9", "end": "4.2", "text": "مشغلات الويب." },
+                { "start": "5.0", "end": "6.5", "text": "مع ميزات الذكاء الاصطناعي" },
+                { "start": "6.6", "end": "8.0", "text": "التي تغير قواعد اللعبة." },
+                { "start": "8.5", "end": "9.8", "text": "مثل النصوص التفاعلية،" },
+                { "start": "10.0", "end": "11.5", "text": "والصوت السينمائي." },
+                { "start": "12.0", "end": "14.0", "text": "استعدوا لتجربة فريدة." },
+                { "start": "15.0", "end": "16.0", "text": "هل أنتم جاهزون؟" },
+                { "start": "17.0", "end": "18.0", "text": "لنبدأ الآن." }
+            ],
+            currentTranscriptIndex: -1
         };
 
         this.ui = this.cacheDOM();
@@ -50,6 +67,7 @@ class WebPlayerPro {
     cacheDOM() {
         return {
             playBtn: document.getElementById('playPauseBtn'),
+            videoWrapper: document.getElementById('videoWrapper'),
             bigPlayBtn: document.getElementById('bigPlayBtn'),
             progressBar: document.getElementById('progressBar'),
             bufferBar: document.getElementById('bufferBar'),
@@ -59,6 +77,7 @@ class WebPlayerPro {
             durationDisplay: document.getElementById('duration'),
             fullscreenBtn: document.getElementById('fullscreenBtn'),
             pipBtn: document.getElementById('pipBtn'),
+            scrubPreview: document.getElementById('scrubPreview'),
             volumeBtn: document.getElementById('muteBtn'),
             volumeSlider: document.getElementById('volumeSlider'),
             skipIntroBtn: document.getElementById('skipIntroBtn'),
@@ -70,9 +89,15 @@ class WebPlayerPro {
             settingsMenu: document.getElementById('settingsMenu'),
             audioMenuBtn: document.getElementById('audioMenuBtn'),
             audioMenu: document.getElementById('audioMenu'),
+            equalizer: document.getElementById('equalizer'),
             aiMenuBtn: document.getElementById('aiMenuBtn'),
             aiMenu: document.getElementById('aiMenu'),
-            recordBtn: document.getElementById('recordBtn')
+            recordBtn: document.getElementById('recordBtn'),
+            // New UI
+            transcriptBtn: document.getElementById('transcriptBtn'),
+            transcriptPanel: document.getElementById('transcriptPanel'),
+            transcriptContent: document.getElementById('transcriptContent'),
+            closeTranscriptBtn: document.getElementById('closeTranscriptBtn')
         };
     }
 
@@ -82,6 +107,7 @@ class WebPlayerPro {
         this.setupEventListeners();
         this.loadPreferences();
         
+        this.renderTranscript();
         // Start Loop
         if ('requestVideoFrameCallback' in this.video) {
             this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
@@ -102,11 +128,8 @@ class WebPlayerPro {
 
     updateAmbientLoop(now, metadata) {
         if (this.config.settings.eco || this.video.paused || this.video.ended) {
-            // Stop loop in Eco mode or when paused
-             if(!this.config.settings.eco && !this.video.paused) {
-                 this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
-             }
-             return;
+            // Stop loop in Eco mode, when paused, or when video ends.
+            return;
         }
 
         // Send frame to worker
@@ -143,13 +166,21 @@ class WebPlayerPro {
         
         // Reset Connections
         this.config.nodes.source.disconnect();
+        this.config.eqBands.forEach(band => band.disconnect());
         this.config.nodes.compressor.disconnect();
         this.config.nodes.panner.disconnect();
         this.config.nodes.gain.disconnect();
 
+        // Rebuild the audio graph chain
         let currentNode = this.config.nodes.source;
 
-        // 1. Dialogue Boost (Compression + Gain)
+        // 1. Connect through EQ bands
+        this.config.eqBands.forEach(band => {
+            currentNode.connect(band);
+            currentNode = band;
+        });
+
+        // 2. Dialogue Boost (Compression + Gain)
         if (this.config.settings.dialogue) {
             this.config.nodes.compressor.threshold.value = -24;
             this.config.nodes.compressor.knee.value = 30;
@@ -164,7 +195,7 @@ class WebPlayerPro {
             this.config.nodes.gain.gain.value = 1.0;
         }
 
-        // 2. Spatial Audio (Simulated 3D)
+        // 3. Spatial Audio (Simulated 3D)
         if (this.config.settings.spatial) {
             // Simple oscillation to simulate movement or width
             if(!this.config.nodes.spatialInterval) {
@@ -187,18 +218,44 @@ class WebPlayerPro {
         this.config.nodes.gain.connect(this.config.audioCtx.destination);
     }
 
+    renderEqualizer() {
+        const freqs = ['60', '310', '1k', '6k', '12k'];
+        this.ui.equalizer.innerHTML = '';
+        this.config.eqBands.forEach((band, i) => {
+            const bandContainer = document.createElement('div');
+            bandContainer.className = 'eq-band';
+
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = -12;
+            slider.max = 12;
+            slider.step = 1;
+            slider.value = 0;
+            slider.oninput = (e) => { band.gain.value = e.target.value; };
+            
+            const label = document.createElement('label');
+            label.innerText = freqs[i];
+
+            bandContainer.appendChild(slider);
+            bandContainer.appendChild(label);
+            this.ui.equalizer.appendChild(bandContainer);
+        });
+    }
+
     // --- 3. Features Logic ---
     toggleSetting(key, element, type = 'bool') {
         this.config.settings[key] = !this.config.settings[key];
         const isOn = this.config.settings[key];
         
         // Update UI
+        element.setAttribute('aria-checked', isOn);
         const span = element.querySelector('span');
         if(span) {
             span.innerText = isOn ? 'ON' : 'OFF';
             span.style.color = isOn ? 'var(--accent-color)' : 'inherit';
         }
 
+        this.savePreferences();
         // Logic Switch
         switch(key) {
             case 'dialogue':
@@ -218,6 +275,13 @@ class WebPlayerPro {
                 // Simulated Super Resolution via CSS Filters
                 this.video.style.filter = isOn ? 'contrast(1.1) saturate(1.1) drop-shadow(0 0 1px rgba(255,255,255,0.2))' : 'none';
                 this.showToast(isOn ? 'AI Upscaling Active ✨' : 'Standard Resolution');
+                break;
+            case 'smartZoom':
+                this.ui.videoWrapper.classList.toggle('smart-zoom-active', isOn);
+                this.showToast(isOn ? 'AI Smart Zoom ON 🔎' : 'Smart Zoom OFF');
+                break;
+            case 'transcript':
+                this.container.classList.toggle('transcript-open', isOn);
                 break;
         }
     }
@@ -287,10 +351,10 @@ class WebPlayerPro {
     togglePlay() {
         if (this.video.paused) {
             this.video.play();
-            this.initAudio(); // Initialize Context on gesture
         } else {
             this.video.pause();
         }
+        this.initAudio(); // Initialize Context on first user gesture
     }
 
     // --- 5. Event Listeners & UI ---
@@ -299,12 +363,13 @@ class WebPlayerPro {
         const toggle = () => this.togglePlay();
         this.ui.playBtn.onclick = toggle;
         this.ui.bigPlayBtn.onclick = toggle;
-        this.video.onclick = toggle;
+        this.ui.videoWrapper.onclick = toggle;
         
         this.video.onplay = () => {
             this.container.classList.remove('paused');
             this.ui.playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
             if(!this.config.settings.eco) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
+            if(this.config.audioCtx && this.config.audioCtx.state === 'suspended') this.config.audioCtx.resume();
         };
         this.video.onpause = () => {
             this.container.classList.add('paused');
@@ -319,17 +384,36 @@ class WebPlayerPro {
             this.ui.timeDisplay.innerText = this.formatTime(curr);
             this.ui.durationDisplay.innerText = this.formatTime(dur);
 
+            this.updateTranscriptHighlight(curr);
             // Smart Skip Trigger (Mock Logic)
             if (curr > 10 && curr < 20) this.ui.skipIntroBtn.classList.add('show');
             else this.ui.skipIntroBtn.classList.remove('show');
         };
 
         // Progress Seek
-        this.ui.progressArea.onclick = (e) => {
-            const width = this.ui.progressArea.clientWidth;
-            const clickX = e.offsetX;
+        const seek = (e) => {
+            const rect = this.ui.progressArea.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const width = rect.width;
             this.video.currentTime = (clickX / width) * this.video.duration;
         };
+        this.ui.progressArea.onclick = (e) => {
+            seek(e);
+        };
+
+        // Progress Tooltip & Scrub Preview
+        this.ui.progressArea.onmousemove = (e) => {
+            const rect = this.ui.progressArea.getBoundingClientRect();
+            const hoverX = e.clientX - rect.left;
+            const width = rect.width;
+            const hoverTime = (hoverX / width) * this.video.duration;
+
+            if (isNaN(hoverTime)) return;
+
+            this.ui.tooltip.style.left = `${hoverX}px`;
+            this.ui.tooltip.innerText = this.formatTime(hoverTime);
+            this.ui.scrubPreview.style.left = `${hoverX}px`;
+        }
 
         // Menus
         const toggleMenu = (btn, menu) => {
@@ -344,13 +428,31 @@ class WebPlayerPro {
         toggleMenu(this.ui.settingsBtn, this.ui.settingsMenu);
         toggleMenu(this.ui.audioMenuBtn, this.ui.audioMenu);
         toggleMenu(this.ui.aiMenuBtn, this.ui.aiMenu);
+        
+        this.ui.transcriptBtn.onclick = (e) => this.toggleSetting('transcript', e.currentTarget);
+        this.ui.closeTranscriptBtn.onclick = (e) => this.toggleSetting('transcript', this.ui.transcriptBtn);
 
         // Feature Toggles
         document.getElementById('dialogueBoostToggle').onclick = (e) => this.toggleSetting('dialogue', e.currentTarget);
         document.getElementById('spatialAudioToggle').onclick = (e) => this.toggleSetting('spatial', e.currentTarget);
+        document.getElementById('smartZoomToggle').onclick = (e) => this.toggleSetting('smartZoom', e.currentTarget);
         document.getElementById('theaterModeToggle').onclick = (e) => this.toggleSetting('theater', e.currentTarget);
         document.getElementById('ecoModeToggle').onclick = (e) => this.toggleSetting('eco', e.currentTarget);
         document.getElementById('upscaleToggle').onclick = (e) => this.toggleSetting('upscale', e.currentTarget);
+
+        // Speed Control
+        this.ui.settingsMenu.querySelectorAll('[data-speed]').forEach(el => {
+            el.onclick = () => {
+                this.ui.settingsMenu.querySelector('[data-speed].active').classList.remove('active');
+                this.ui.settingsMenu.querySelector('[aria-checked="true"]').setAttribute('aria-checked', 'false');
+                el.classList.add('active');
+                el.setAttribute('aria-checked', 'true');
+                this.video.playbackRate = el.dataset.speed;
+                this.config.settings.speed = el.dataset.speed;
+                this.savePreferences();
+                this.showToast(`Speed: ${el.innerText}`);
+            }
+        });
 
         this.ui.recordBtn.onclick = () => this.recordClip();
         this.ui.skipIntroBtn.onclick = () => {
@@ -363,6 +465,20 @@ class WebPlayerPro {
             else document.exitFullscreen();
         };
 
+        // Volume
+        this.ui.volumeSlider.oninput = (e) => {
+            this.video.volume = e.target.value;
+            this.config.settings.volume = e.target.value;
+            this.video.muted = e.target.value == 0;
+            this.savePreferences();
+        };
+        this.video.onvolumechange = () => {
+            this.ui.volumeSlider.value = this.video.volume;
+            const icon = this.ui.volumeBtn.querySelector('i');
+            if (this.video.muted || this.video.volume === 0) icon.className = 'fa-solid fa-volume-xmark';
+            else if (this.video.volume < 0.5) icon.className = 'fa-solid fa-volume-low';
+            else icon.className = 'fa-solid fa-volume-high';
+        };
         // Keyboard Shortcuts
         document.onkeydown = (e) => {
             if(e.target.tagName === 'INPUT') return;
@@ -381,12 +497,27 @@ class WebPlayerPro {
                 document.querySelectorAll('.dropdown-menu, .settings-menu').forEach(m => m.classList.remove('show'));
             }
         };
+
+        // Hide controls on inactivity
+        this.container.onmousemove = () => {
+            this.container.classList.remove('hide-cursor');
+            this.container.classList.add('show-controls');
+            clearTimeout(this.config.controlsTimeout);
+            if (!this.video.paused) {
+                this.config.controlsTimeout = setTimeout(() => {
+                    this.container.classList.remove('show-controls');
+                    this.container.classList.add('hide-cursor');
+                }, 3000);
+            }
+        };
     }
 
     // --- Helpers ---
     formatTime(s) {
         if(isNaN(s)) return "00:00";
-        return new Date(s * 1000).toISOString().substr(11, 8).replace(/^00:/, '');
+        const date = new Date(s * 1000);
+        const hours = date.getUTCHours();
+        return date.toISOString().slice(hours > 0 ? 11 : 14, 19);
     }
 
     showToast(msg) {
@@ -402,9 +533,68 @@ class WebPlayerPro {
         setTimeout(() => fb.classList.remove('show'), 600);
     }
 
+    // --- Transcript Logic ---
+    renderTranscript() {
+        this.ui.transcriptContent.innerHTML = '';
+        this.config.transcriptData.forEach((line, index) => {
+            const span = document.createElement('span');
+            span.textContent = line.text + ' ';
+            span.dataset.index = index;
+            span.onclick = () => { this.video.currentTime = line.start; };
+            this.ui.transcriptContent.appendChild(span);
+        });
+    }
+
+    updateTranscriptHighlight(currentTime) {
+        if (!this.config.settings.transcript) return;
+
+        let foundIndex = -1;
+        for (let i = 0; i < this.config.transcriptData.length; i++) {
+            if (currentTime >= this.config.transcriptData[i].start && currentTime <= this.config.transcriptData[i].end) {
+                foundIndex = i;
+                break;
+            }
+        }
+
+        if (foundIndex !== this.config.currentTranscriptIndex) {
+            // Remove old highlight
+            const oldActive = this.ui.transcriptContent.querySelector('.active-word');
+            if (oldActive) oldActive.classList.remove('active-word');
+            // Add new highlight
+            const newActive = this.ui.transcriptContent.querySelector(`[data-index="${foundIndex}"]`);
+            if (newActive) newActive.classList.add('active-word');
+            this.config.currentTranscriptIndex = foundIndex;
+        }
+    }
+
     loadPreferences() {
-        // Logic to load saved settings from LocalStorage can go here
-        console.log("WebPlayer Pro V4: Ready 🚀");
+        const saved = localStorage.getItem('webplayer_prefs');
+        if (saved) {
+            const prefs = JSON.parse(saved);
+            // Apply settings
+            this.config.settings = { ...this.config.settings, ...prefs };
+
+            // Apply Volume
+            this.video.volume = this.config.settings.volume;
+            this.ui.volumeSlider.value = this.config.settings.volume;
+
+            // Apply Speed
+            this.video.playbackRate = this.config.settings.speed;
+            this.ui.settingsMenu.querySelector('[data-speed].active')?.classList.remove('active');
+            this.ui.settingsMenu.querySelector(`[data-speed="${this.config.settings.speed}"]`)?.classList.add('active');
+
+            // Apply Toggles (Theater, Eco etc.) by simulating a click if the setting is on
+            if (this.config.settings.theater) document.getElementById('theaterModeToggle').click();
+            if (this.config.settings.eco) document.getElementById('ecoModeToggle').click();
+            if (this.config.settings.transcript) document.getElementById('transcriptBtn').click();
+            
+            console.log("WebPlayer Pro V4: Preferences loaded 💾");
+        } else {
+            console.log("WebPlayer Pro V4: Ready 🚀");
+        }
+    }
+    savePreferences() {
+        localStorage.setItem('webplayer_prefs', JSON.stringify(this.config.settings));
     }
 }
 
