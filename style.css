@@ -1,0 +1,132 @@
+/* style.css */
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+
+/* 1. Best Practice: CSS Variables */
+:root {
+    --primary-color: #e50914; /* لون التمييز */
+    --bg-overlay: rgba(0, 0, 0, 0.7);
+    --text-color: #ffffff;
+    --hover-scale: 1.1;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Tajawal', sans-serif; outline: none; }
+
+body {
+    background-color: #0f0f0f;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh;
+}
+
+.player-container {
+    position: relative;
+    width: 900px; max-width: 95%;
+    background: #000; border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 40px rgba(0,0,0,0.6);
+    aspect-ratio: 16/9;
+}
+
+/* إخفاء المؤشر عند عدم الحركة في وضع ملء الشاشة */
+.player-container.hide-cursor { cursor: none; }
+
+video { width: 100%; height: 100%; object-fit: contain; }
+
+/* Spinner (دائرة التحميل) */
+.spinner {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 50px; height: 50px;
+    border: 5px solid rgba(255,255,255,0.3);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    display: none; /* مخفي افتراضياً */
+}
+.player-container.buffering .spinner { display: block; }
+
+@keyframes spin { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+/* Controls Overlay */
+.controls-overlay {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+    padding: 20px;
+    opacity: 0; transition: opacity 0.3s ease;
+}
+
+.player-container:hover .controls-overlay,
+.player-container.paused .controls-overlay { opacity: 1; }
+
+/* Progress Bar */
+.progress-area {
+    height: 6px; background: rgba(255,255,255,0.3);
+    cursor: pointer; border-radius: 5px; margin-bottom: 15px; position: relative;
+}
+.progress-filled {
+    height: 100%; background: var(--primary-color);
+    width: 0%; border-radius: 5px; position: relative;
+}
+.progress-filled::after {
+    content: ''; position: absolute; left: 0; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 14px; height: 14px; background: var(--primary-color);
+    border-radius: 50%; border: 2px solid #fff;
+    opacity: 0; transition: opacity 0.2s;
+}
+.progress-area:hover .progress-filled::after { opacity: 1; }
+
+/* Tooltip (الوقت فوق الشريط) */
+.progress-tooltip {
+    position: absolute; top: -35px; left: 0; /* JS will move this */
+    transform: translateX(-50%);
+    background: var(--bg-overlay); color: #fff;
+    padding: 5px 10px; border-radius: 5px; font-size: 12px;
+    display: none; pointer-events: none;
+}
+.progress-area:hover .progress-tooltip { display: block; }
+
+/* Buttons & Layout */
+.buttons-row { display: flex; justify-content: space-between; align-items: center; color: var(--text-color); }
+.left-controls, .right-controls { display: flex; align-items: center; gap: 15px; }
+
+button {
+    background: none; border: none; color: #fff;
+    font-size: 18px; cursor: pointer; opacity: 0.85; transition: 0.2s;
+}
+button:hover { opacity: 1; color: var(--primary-color); transform: scale(var(--hover-scale)); }
+
+/* Volume */
+.volume-container { display: flex; align-items: center; gap: 8px; }
+#volumeSlider { width: 0; height: 4px; transition: 0.3s; overflow: hidden; appearance: none; background: #fff; border-radius: 2px;}
+.volume-container:hover #volumeSlider { width: 70px; }
+
+/* Settings Menu */
+.settings-container { position: relative; }
+.settings-menu {
+    position: absolute; bottom: 40px; right: -20px;
+    background: rgba(20, 20, 20, 0.95);
+    border-radius: 8px; padding: 5px 0;
+    width: 100px; display: none;
+    flex-direction: column;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+}
+.settings-menu.show { display: flex; }
+.settings-menu li {
+    list-style: none; padding: 8px 15px;
+    font-size: 14px; cursor: pointer; text-align: center;
+    transition: 0.2s;
+}
+.settings-menu li:hover { background: rgba(255,255,255,0.1); }
+.settings-menu li.active { color: var(--primary-color); font-weight: bold; }
+
+/* Big Play Button */
+.big-play-btn {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 50px; width: 80px; height: 80px;
+    background: rgba(0,0,0,0.5); border-radius: 50%;
+    display: flex; justify-content: center; align-items: center;
+    border: 3px solid #fff; pointer-events: none;
+    opacity: 0; transition: 0.3s;
+}
+.player-container.paused .big-play-btn { opacity: 1; }
