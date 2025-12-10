@@ -26,24 +26,40 @@
         <div class="toast-notification" id="toast" role="alert"></div>
         <div class="gesture-feedback" id="gestureFeedback"></div>
 
-        <div class="transcript-panel" id="transcriptPanel">
-            <div class="transcript-header">
-                <h3>النص التفاعلي</h3>
-                <button id="closeTranscriptBtn" class="close-btn" aria-label="إغلاق النص"><i class="fa-solid fa-times"></i></button>
+        <!-- Redesigned Side Panel for Transcript, Chapters, and Summary -->
+        <div class="side-panel" id="sidePanel">
+            <div class="side-panel-header">
+                <div class="tabs" role="tablist" aria-label="لوحة المحتوى">
+                    <button id="tab-transcript" class="tab-btn active" role="tab" aria-selected="true" aria-controls="transcriptTab">النص</button>
+                    <button id="tab-chapters" class="tab-btn" role="tab" aria-selected="false" aria-controls="chaptersTab">الفصول</button>
+                    <button id="tab-summary" class="tab-btn" role="tab" aria-selected="false" aria-controls="summaryTab">الملخص</button>
+                </div>
+                <button id="closeSidePanelBtn" class="close-btn" aria-label="إغلاق اللوحة الجانبية"><i class="fa-solid fa-times"></i></button>
             </div>
-            <div class="transcript-content" id="transcriptContent">
-                <!-- Transcript will be populated by JS -->
+            <div class="side-panel-content">
+                <div id="transcriptTab" class="tab-content active" role="tabpanel" aria-labelledby="tab-transcript">
+                    <div class="transcript-controls">
+                        <select id="translateLangSelect" aria-label="ترجمة النص">
+                            <option value="ar">الأصل (العربية)</option>
+                            <option value="en">Translate to English</option>
+                            <option value="fr">Traduire en Français</option>
+                        </select>
+                    </div>
+                    <div class="transcript-content" id="transcriptContent"></div>
+                </div>
+                <div id="chaptersTab" class="tab-content" role="tabpanel" aria-labelledby="tab-chapters">
+                    <div class="chapters-content" id="chaptersContent"></div>
+                </div>
+                <div id="summaryTab" class="tab-content" role="tabpanel" aria-labelledby="tab-summary">
+                    <div class="summary-content" id="summaryContent"></div>
+                </div>
             </div>
         </div>
 
-        <button id="skipIntroBtn" class="skip-intro-btn" aria-label="تخطي المقدمة">
-            <i class="fa-solid fa-bolt"></i> تخطي ذكي (AI Skip)
-        </button>
-
         <div class="controls-overlay" id="controls">
-            
             <div class="progress-area" id="progressArea" role="slider" aria-label="شريط التقدم" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                 <div class="progress-bar">
+                    <div class="chapter-markers" id="chapterMarkers"></div>
                     <div class="buffer-bar" id="bufferBar"></div> 
                     <div class="progress-filled" id="progressBar"></div>
                     <div class="scrub-preview" id="scrubPreview"></div>
@@ -68,12 +84,12 @@
 
                 <div class="right-controls">
                     <button id="transcriptBtn" class="control-btn" title="النص التفاعلي"><i class="fa-solid fa-file-lines"></i></button>
+                    <button id="chaptersBtn" class.control-btn" title="الفصول الذكية"><i class="fa-solid fa-list-ol"></i></button>
 
                     <div class="dropdown-container">
                         <button id="aiMenuBtn" class="control-btn ai-btn" title="ميزات الذكاء الاصطناعي"><i class="fa-solid fa-brain"></i></button>
                         <ul class="dropdown-menu ai-menu" id="aiMenu">
                             <li class="menu-header">AI Enhancements</li>
-                            <li id="smartZoomToggle" role="menuitemcheckbox" aria-checked="false"><i class="fa-solid fa-search-plus"></i> زوم ذكي <span>OFF</span></li>
                             <li id="upscaleToggle" role="menuitemcheckbox" aria-checked="false"><i class="fa-solid fa-wand-magic"></i> تحسين الدقة <span>OFF</span></li>
                             <li id="smartSkipToggle" role="menuitemcheckbox" aria-checked="false"><i class="fa-solid fa-forward-step"></i> تخطي الصمت <span>OFF</span></li>
                         </ul>
@@ -118,6 +134,10 @@
         </div>
         
         <button class="big-play-btn" id="bigPlayBtn" aria-hidden="true"><i class="fa-solid fa-play"></i></button>
+
+        <button id="skipIntroBtn" class="skip-intro-btn" aria-label="تخطي المقدمة">
+            <i class="fa-solid fa-bolt"></i> تخطي ذكي (AI Skip)
+        </button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>

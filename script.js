@@ -1,5 +1,5 @@
-// script.js - Ultimate AI Edition V5.0 (Phoenix)
-// Features: Interactive Transcript, 5-Band EQ, Smart Zoom, Worker Ambience, Enhanced Audio DSP
+// script.js - Ultimate AI Edition V6.0 (Titan)
+// New Features: AI Chapters & Summary, Live Translation, Audio-Reactive Ambience, Refactored Audio Engine
 
 // --- 0. Performance: Ambient Light Worker (Inline Blob) ---
 const workerCode = `
@@ -38,10 +38,9 @@ class WebPlayerPro {
                 speed: 1,
                 eco: false,
                 theater: false,
-                spatial: false,
-                dialogueBoost: false, // Renamed for clarity
-                superRes: false,
-                smartZoom: false,
+                spatialAudio: false,
+                dialogueBoost: false,
+                upscale: false,
                 transcript: false
             },
             controlsTimeout: null,
@@ -57,7 +56,24 @@ class WebPlayerPro {
                 { "start": "15.0", "end": "16.0", "text": "هل أنتم" },
                 { "start": "17.0", "end": "18.0", "text": "جاهزون؟ لنبدأ الآن." }
             ],
-            currentTranscriptIndex: -1
+            chaptersData: [ // Mock Chapters Data
+                { "time": 0, "title": "المقدمة", "desc": "نظرة عامة على ميزات المشغل الجديدة." },
+                { "time": 8, "title": "النص التفاعلي والصوت", "desc": "استكشاف النص المتزامن والصوت السينمائي." },
+                { "time": 15, "title": "ميزات الذكاء الاصطناعي", "desc": "شرح لتقنيات التخطي الذكي والتحسين." },
+                { "time": 25, "title": "التخصيص والتحكم", "desc": "التعمق في الإعدادات وأوضاع العرض." },
+                { "time": 35, "title": "الخاتمة", "desc": "نظرة مستقبلية على تطور مشغلات الويب." }
+            ],
+            summaryData: { // Mock Summary Data
+                title: "ملخص الفيديو بالذكاء الاصطناعي",
+                points: [
+                    "يقدم المشغل واجهة مستخدم حديثة مع تأثيرات بصرية متقدمة.",
+                    "يحتوي على نص تفاعلي متزامن مع الفيديو لسهولة المتابعة والترجمة.",
+                    "يوفر محرك صوت سينمائي مع معادل صوت (EQ) وميزات تعزيز الحوار والصوت المكاني.",
+                    "يستخدم الذكاء الاصطناعي لميزات مثل الفصول الذكية، التخطي الذكي، وتلخيص المحتوى.",
+                    "يدعم تخصيص التجربة من خلال أوضاع متعددة مثل وضع المسرح والوضع الاقتصادي."
+                ]
+            },
+            activeIndices: { transcript: -1, chapter: -1 }
         };
         
         this.ui = this.cacheDOM();
@@ -94,10 +110,16 @@ class WebPlayerPro {
             aiMenu: document.getElementById('aiMenu'),
             recordBtn: document.getElementById('recordBtn'),
             // New UI
+            chaptersBtn: document.getElementById('chaptersBtn'),
             transcriptBtn: document.getElementById('transcriptBtn'),
-            transcriptPanel: document.getElementById('transcriptPanel'),
+            sidePanel: document.getElementById('sidePanel'),
+            closeSidePanelBtn: document.getElementById('closeSidePanelBtn'),
+            sidePanelTabs: document.querySelectorAll('.tab-btn'),
             transcriptContent: document.getElementById('transcriptContent'),
-            closeTranscriptBtn: document.getElementById('closeTranscriptBtn')
+            chaptersContent: document.getElementById('chaptersContent'),
+            summaryContent: document.getElementById('summaryContent'),
+            chapterMarkersContainer: document.getElementById('chapterMarkers'),
+            translateSelect: document.getElementById('translateLangSelect')
         };
     }
 
@@ -105,10 +127,13 @@ class WebPlayerPro {
         this.initHLS();
         this.initWorker();
         this.setupEventListeners();
-        this.initAudio(); // Initialize AudioContext early, but resume on user gesture
+        this.initAudioEngine();
         this.loadPreferences();
         
         this.renderTranscript();
+        this.renderChapters();
+        this.renderSummary();
+        this.renderChapterMarkers();
         // Start Loop
         if ('requestVideoFrameCallback' in this.video) {
             this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
@@ -128,7 +153,17 @@ class WebPlayerPro {
     }
 
     updateAmbientLoop(now, metadata) {
-        if (this.config.settings.eco || this.video.paused || this.video.ended) {
+        // Audio-reactive ambient light in theater mode
+        if (this.config.settings.theater && !this.config.settings.eco && this.config.nodes.analyser) {
+            const dataArray = new Uint8Array(this.config.nodes.analyser.frequencyBinCount);
+            this.config.nodes.analyser.getByteFrequencyData(dataArray);
+            // Average of first 5 bins for bass response
+            const bass = dataArray.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+            const brightness = 0.8 + (bass / 255) * 0.4; // Map 0-255 to 0.8-1.2
+            this.ambientCanvas.style.filter = `blur(40px) saturate(2) brightness(${brightness})`;
+        }
+
+        if (this.config.settings.eco || this.video.paused || this.video.ended || !this.config.worker) {
             // Stop loop in Eco mode, when paused, or when video ends.
             return;
         }
@@ -142,93 +177,84 @@ class WebPlayerPro {
     }
 
     // --- 2. Advanced Audio Engine (Cinema DSP) ---
-    initAudio() {
+    initAudioEngine() {
         if (this.config.audioCtx) return;
 
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.config.audioCtx = new AudioContext();
 
-        // Base Graph
+        // Create all nodes upfront
         this.config.nodes.source = this.config.audioCtx.createMediaElementSource(this.video);
         this.config.nodes.gain = this.config.audioCtx.createGain();
+        this.config.nodes.analyser = this.config.audioCtx.createAnalyser();
+        this.config.nodes.analyser.fftSize = 32;
 
-        // Effects Nodes
-        this.config.nodes.compressor = this.config.audioCtx.createDynamicsCompressor(); // For Dialogue
-        this.config.nodes.panner = this.config.audioCtx.createPanner(); // More advanced PannerNode for 3D spatial
-        this.config.nodes.analyser = this.config.audioCtx.createAnalyser(); // For AI Visuals
-
-        // Initialize EQ bands
+        // -- EQ Nodes --
         const freqs = [60, 310, 1000, 6000, 12000];
         this.config.eqBands = freqs.map(f => {
             const filter = this.config.audioCtx.createBiquadFilter();
-            filter.type = 'peaking';
-            filter.frequency.value = f;
-            filter.Q.value = 1; // Quality factor
-            filter.gain.value = 0; // Start flat
+            filter.type = 'peaking'; filter.frequency.value = f;
+            filter.Q.value = 1; filter.gain.value = 0;
             return filter;
         });
 
-        // Initial Connection: Source -> Analyser -> Gain -> Destination (Analyser for potential future AI visuals)
-        this.config.nodes.source.connect(this.config.nodes.analyser);
-        this.config.nodes.source.connect(this.config.nodes.gain);
-        this.config.nodes.gain.connect(this.config.audioCtx.destination);
-    }
+        // -- Dialogue Boost Nodes --
+        this.config.nodes.dialogueCompressor = this.config.audioCtx.createDynamicsCompressor();
+        this.config.nodes.dialogueGain = this.config.audioCtx.createGain();
 
-    applyAudioEffects() {
-        if (!this.config.audioCtx) this.initAudio();
-        
-        // Reset Connections
-        this.config.nodes.source.disconnect();
-        this.config.eqBands.forEach(band => band.disconnect());
-        this.config.nodes.compressor.disconnect();
-        this.config.nodes.panner.disconnect();
-        this.config.nodes.gain.disconnect();
+        // -- Spatial Audio Nodes --
+        this.config.nodes.spatialPanner = this.config.audioCtx.createPanner();
+        this.config.nodes.spatialLFO = this.config.audioCtx.createOscillator(); // LFO for effect
+        this.config.nodes.spatialLFOgain = this.config.audioCtx.createGain(); // Controls LFO depth
 
-        // Rebuild the audio graph chain
+        // Build a FIXED audio graph: Source -> EQ -> Dialogue -> Spatial -> Main Gain -> Destination
         let currentNode = this.config.nodes.source;
 
-        // 1. Connect through EQ bands
+        // 1. Connect through EQ bands in series
         this.config.eqBands.forEach(band => {
             currentNode.connect(band);
             currentNode = band;
         });
 
-        // 2. Dialogue Boost (Compression + Gain)
-        if (this.config.settings.dialogue) {
-            this.config.nodes.compressor.threshold.value = -24;
-            this.config.nodes.compressor.knee.value = 30;
-            this.config.nodes.compressor.ratio.value = 12;
-            this.config.nodes.compressor.attack.value = 0.003;
-            this.config.nodes.compressor.release.value = 0.25;
-            
-            currentNode.connect(this.config.nodes.compressor);
-            currentNode = this.config.nodes.compressor;
-            this.config.nodes.gain.gain.value = 1.4; // Boost volume
-        } else {
-            this.config.nodes.gain.gain.value = 1.0;
-        }
+        // 2. Connect to Dialogue Boost path
+        currentNode.connect(this.config.nodes.dialogueCompressor);
+        this.config.nodes.dialogueCompressor.connect(this.config.nodes.dialogueGain);
+        currentNode = this.config.nodes.dialogueGain;
 
-        // 3. Spatial Audio (Simulated 3D)
-        if (this.config.settings.spatial) {
-            // Simple oscillation to simulate movement or width
-            if(!this.config.nodes.spatialInterval) {
-                let startTime = this.config.audioCtx.currentTime;
-                this.config.nodes.spatialInterval = setInterval(() => {
-                    const time = this.config.audioCtx.currentTime - startTime;
-                    // Subtle movement
-                    this.config.nodes.panner.pan.value = Math.sin(time / 4) * 0.3; 
-                }, 50);
-            }
-            currentNode.connect(this.config.nodes.panner);
-            currentNode = this.config.nodes.panner;
-        } else {
-            if(this.config.nodes.spatialInterval) clearInterval(this.config.nodes.spatialInterval);
-            this.config.nodes.panner.pan.value = 0;
-        }
+        // 3. Connect to Spatial Audio path
+        this.config.nodes.spatialLFO.type = 'sine';
+        this.config.nodes.spatialLFO.frequency.value = 0.25; // Slow, wide oscillation
+        this.config.nodes.spatialLFO.connect(this.config.nodes.spatialLFOgain);
+        this.config.nodes.spatialLFOgain.connect(this.config.nodes.spatialPanner.pan); // Modulate pan
+        this.config.nodes.spatialLFO.start();
+        currentNode.connect(this.config.nodes.spatialPanner);
+        currentNode = this.config.nodes.spatialPanner;
 
-        // Final connection
+        // 4. Final connection to main gain and destination
         currentNode.connect(this.config.nodes.gain);
         this.config.nodes.gain.connect(this.config.audioCtx.destination);
+
+        // 5. Side-chain source to analyser for visuals
+        this.config.nodes.source.connect(this.config.nodes.analyser);
+
+        // Set initial "off" states without showing toasts
+        this.toggleDialogueBoost(this.config.settings.dialogueBoost, true);
+        this.toggleSpatialAudio(this.config.settings.spatialAudio, true);
+    }
+
+    toggleDialogueBoost(isOn, isInit = false) {
+        if (!this.config.audioCtx) return;
+        const { dialogueCompressor, dialogueGain } = this.config.nodes;
+        dialogueCompressor.threshold.setValueAtTime(isOn ? -24 : 0, 0);
+        dialogueCompressor.ratio.setValueAtTime(isOn ? 12 : 1, 0);
+        dialogueGain.gain.setValueAtTime(isOn ? 1.4 : 1.0, 0);
+        if (!isInit) this.showToast(`Voice Boost: ${isOn ? 'Enabled' : 'Disabled'}`);
+    }
+
+    toggleSpatialAudio(isOn, isInit = false) {
+        if (!this.config.audioCtx) return;
+        this.config.nodes.spatialLFOgain.gain.setValueAtTime(isOn ? 0.3 : 0, this.config.audioCtx.currentTime);
+        if (!isInit) this.showToast(`Spatial Audio: ${isOn ? 'Enabled' : 'Disabled'}`);
     }
 
     renderEqualizer() {
@@ -256,55 +282,47 @@ class WebPlayerPro {
     }
 
     // --- 3. Features Logic ---
-    toggleSetting(key, element, type = 'bool') {
+    toggleSetting(key, element) {
         this.config.settings[key] = !this.config.settings[key];
         const isOn = this.config.settings[key];
         
-        // Update UI
-        element.setAttribute('aria-checked', isOn);
-        const span = element.querySelector('span');
-        if(span) {
-            span.innerText = isOn ? 'ON' : 'OFF';
-            span.style.color = isOn ? 'var(--accent-color)' : 'inherit';
+        if (element) {
+            element.setAttribute('aria-checked', isOn);
+            const span = element.querySelector('span');
+            if (span) {
+                span.innerText = isOn ? 'ON' : 'OFF';
+                span.style.color = isOn ? 'var(--accent-color)' : 'inherit';
+            }
         }
 
         this.savePreferences();
-        // Apply specific logic based on the setting key
-        switch (key) {
-            case 'dialogue':
-            case 'spatial':
-                this.applyAudioEffects();
-                this.showToast(`${key === 'dialogue' ? 'Voice Boost' : 'Spatial Audio'}: ${isOn ? 'Enabled' : 'Disabled'}`);
-                break;
-            case 'theater':
+
+        // Apply specific logic
+        const handlers = {
+            dialogueBoost: () => this.toggleDialogueBoost(isOn),
+            spatialAudio: () => this.toggleSpatialAudio(isOn),
+            theater: () => {
                 document.body.classList.toggle('immersive-mode', isOn);
                 this.showToast(isOn ? 'Immersive Mode Active 🍿' : 'Normal Mode');
-                break;
-            case 'eco': // Eco mode affects ambient canvas loop
-            case 'eco':
-                if(!isOn) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
+            },
+            eco: () => {
+                if (!isOn && !this.video.paused) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
                 this.showToast(isOn ? 'Battery Saver ON 🔋' : 'Battery Saver OFF');
-                break;
-            case 'upscale':
-                // Simulated Super Resolution via CSS Filters
-                this.video.style.filter = isOn ? 'contrast(1.1) saturate(1.1) drop-shadow(0 0 1px rgba(255,255,255,0.2))' : 'none';
+            },
+            upscale: () => {
+                this.video.style.filter = isOn ? 'contrast(1.1) saturate(1.1)' : 'none';
                 this.showToast(isOn ? 'AI Upscaling Active ✨' : 'Standard Resolution');
-                break;
-            case 'smartZoom':
-                this.ui.videoWrapper.classList.toggle('smart-zoom-active', isOn);
-                this.showToast(isOn ? 'AI Smart Zoom ON 🔎' : 'Smart Zoom OFF');
-                break;
-            case 'transcript': // Transcript panel visibility
-                // Toggle the transcript panel visibility
-                this.ui.transcriptBtn.classList.toggle('active', isOn);
-                this.container.classList.toggle('transcript-open', isOn);
-                break;
-        }
+            }
+        };
+
+        if (handlers[key]) handlerskey;
     }
 
     recordClip() {
         if (this.config.isRecording) {
-            this.config.mediaRecorder.stop();
+            if (this.config.mediaRecorder && this.config.mediaRecorder.state === "recording") {
+                this.config.mediaRecorder.stop();
+            }
             return;
         }
 
@@ -358,7 +376,7 @@ class WebPlayerPro {
             this.config.hls.attachMedia(this.video);
             this.config.hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 this.ui.spinner.style.display = 'none';
-                console.log('HLS Manifest Parsed');
+                console.log('WebPlayer Pro: HLS Manifest Parsed');
             });
             this.config.hls.on(Hls.Events.ERROR, (event, data) => {
                 console.error('HLS Error:', data);
@@ -376,11 +394,11 @@ class WebPlayerPro {
 
     togglePlay() {
         if (this.video.paused) {
+            if (this.config.audioCtx && this.config.audioCtx.state === 'suspended') this.config.audioCtx.resume();
             this.video.play();
         } else {
             this.video.pause();
         }
-        if (this.config.audioCtx && this.config.audioCtx.state === 'suspended') this.config.audioCtx.resume(); // Resume context on user gesture
     }
 
     // --- 5. Event Listeners & UI ---
@@ -395,7 +413,6 @@ class WebPlayerPro {
             this.container.classList.remove('paused');
             this.ui.playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
             if(!this.config.settings.eco) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this)); // Restart loop if eco mode is off
-            if(this.config.audioCtx && this.config.audioCtx.state === 'suspended') this.config.audioCtx.resume();
         };
         this.video.onpause = () => {
             this.container.classList.add('paused');
@@ -410,9 +427,10 @@ class WebPlayerPro {
             this.ui.timeDisplay.innerText = this.formatTime(curr);
             this.ui.durationDisplay.innerText = this.formatTime(dur);
 
+            // Update highlights
             this.updateTranscriptHighlight(curr);
-            // Smart Skip Trigger (Mock Logic)
-            if (curr > 10 && curr < 20 && !this.video.paused) this.ui.skipIntroBtn.classList.add('show'); // Only show if playing
+            this.updateChapterHighlight(curr);
+            if (curr > 5 && curr < 10 && !this.video.paused) this.ui.skipIntroBtn.classList.add('show');
             else this.ui.skipIntroBtn.classList.remove('show');
         };
 
@@ -422,9 +440,8 @@ class WebPlayerPro {
             const clickX = e.clientX - rect.left;
             const width = rect.width;
             this.video.currentTime = (clickX / width) * this.video.duration;
-        }; // No debounce needed for click
-        this.ui.progressArea.onclick = (e) => {
-            seek(e);
+        };
+        this.ui.progressArea.onclick = (e) => { seek(e);
         };
 
         // Progress Tooltip & Scrub Preview
@@ -452,18 +469,24 @@ class WebPlayerPro {
             };
         };
         // Initialize EQ UI after audio context is ready
-        this.renderEqualizer();
+        if (this.config.audioCtx) this.renderEqualizer();
         toggleMenu(this.ui.settingsBtn, this.ui.settingsMenu);
         toggleMenu(this.ui.audioMenuBtn, this.ui.audioMenu);
         toggleMenu(this.ui.aiMenuBtn, this.ui.aiMenu);
         
-        this.ui.transcriptBtn.onclick = (e) => this.toggleSetting('transcript', e.currentTarget);
-        this.ui.closeTranscriptBtn.onclick = () => this.toggleSetting('transcript', this.ui.transcriptBtn);
+        // Side Panel
+        this.ui.transcriptBtn.onclick = () => this.openSidePanel('transcript');
+        this.ui.chaptersBtn.onclick = () => this.openSidePanel('chapters');
+        this.ui.closeSidePanelBtn.onclick = () => this.closeSidePanel();
+        this.ui.sidePanelTabs.forEach(tab => {
+            tab.onclick = () => this.switchTab(tab.dataset.tab);
+        });
+        this.ui.translateSelect.onchange = (e) => this.translateTranscript(e.target.value);
 
         // Feature Toggles
         document.getElementById('dialogueBoostToggle').onclick = (e) => this.toggleSetting('dialogueBoost', e.currentTarget);
-        document.getElementById('spatialAudioToggle').onclick = (e) => this.toggleSetting('spatial', e.currentTarget);
-        document.getElementById('smartZoomToggle').onclick = (e) => this.toggleSetting('smartZoom', e.currentTarget);
+        document.getElementById('spatialAudioToggle').onclick = (e) => this.toggleSetting('spatialAudio', e.currentTarget);
+        // document.getElementById('smartZoomToggle').onclick = (e) => this.toggleSetting('smartZoom', e.currentTarget);
         document.getElementById('theaterModeToggle').onclick = (e) => this.toggleSetting('theater', e.currentTarget);
         document.getElementById('ecoModeToggle').onclick = (e) => this.toggleSetting('eco', e.currentTarget);
         document.getElementById('upscaleToggle').onclick = (e) => this.toggleSetting('upscale', e.currentTarget);
@@ -484,7 +507,7 @@ class WebPlayerPro {
 
         this.ui.recordBtn.onclick = () => this.recordClip();
         this.ui.skipIntroBtn.onclick = () => {
-            this.video.currentTime += 85; // Example skip duration
+            this.video.currentTime = 10; // Example skip to time
             this.showToast('Intro Skipped (AI Detected) ⏩');
         };
         
@@ -521,7 +544,7 @@ class WebPlayerPro {
         };
 
         // Close menus on click outside
-        document.onclick = (e) => {
+        this.container.onclick = (e) => {
             if(!e.target.closest('.control-btn') && !e.target.closest('.dropdown-menu') && !e.target.closest('.settings-menu')) {
                 document.querySelectorAll('.dropdown-menu, .settings-menu').forEach(m => m.classList.remove('show'));
             }
@@ -544,7 +567,7 @@ class WebPlayerPro {
             clearTimeout(this.config.controlsTimeout);
             if (!this.video.paused) {
                 this.config.controlsTimeout = setTimeout(() => {
-                    this.container.classList.remove('show-controls');
+                    if(!this.ui.settingsMenu.classList.contains('show') && !this.ui.audioMenu.classList.contains('show') && !this.ui.aiMenu.classList.contains('show')) this.container.classList.remove('show-controls');
                     if (!this.container.classList.contains('paused')) this.container.classList.add('hide-cursor'); // Only hide cursor if not paused or controls are explicitly shown
                 }, 3000);
             }
@@ -572,7 +595,7 @@ class WebPlayerPro {
         setTimeout(() => fb.classList.remove('show'), 600);
     }
 
-    // --- Transcript Logic ---
+    // --- 6. Side Panel & Content Logic ---
     renderTranscript() {
         this.ui.transcriptContent.innerHTML = '';
         this.config.transcriptData.forEach((line, index) => {
@@ -588,42 +611,149 @@ class WebPlayerPro {
     }
 
     updateTranscriptHighlight(currentTime) {
-        if (!this.config.settings.transcript) return;
+        if (!this.container.classList.contains('side-panel-open')) return;
 
+        const data = this.config.transcriptData;
+        const currentIndex = this.config.activeIndices.transcript;
+
+        // Fast path: check if we are still in the current segment
+        if (currentIndex !== -1 && currentTime >= parseFloat(data[currentIndex].start) && currentTime < parseFloat(data[currentIndex].end)) {
+            return; // No change needed
+        }
+
+        // Search for the new segment
+        const foundIndex = data.findIndex(line => currentTime >= parseFloat(line.start) && currentTime < parseFloat(line.end));
+
+        if (foundIndex !== currentIndex) {
+            if (currentIndex !== -1) {
+                const oldActive = this.ui.transcriptContent.querySelector(`[data-index="${currentIndex}"]`);
+                if (oldActive) oldActive.classList.remove('active-word');
+            }
+            if (foundIndex !== -1) {
+                const newActive = this.ui.transcriptContent.querySelector(`[data-index="${foundIndex}"]`);
+                if (newActive) {
+                    newActive.classList.add('active-word');
+                    newActive.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                }
+            }
+            this.config.activeIndices.transcript = foundIndex;
+        }
+    }
+
+    translateTranscript(lang) {
+        if (lang === 'ar') {
+            this.renderTranscript(); // Render original
+            this.showToast('عرض النص الأصلي');
+            return;
+        }
+        this.showToast(`جاري الترجمة إلى ${lang}... (محاكاة)`);
+        this.ui.transcriptContent.querySelectorAll('span').forEach(span => {
+            const originalText = this.config.transcriptData[span.dataset.index].text;
+            span.textContent = `[${lang}] ${originalText} `; // Mock translation
+        });
+    }
+
+    renderChapters() {
+        this.ui.chaptersContent.innerHTML = '';
+        this.config.chaptersData.forEach((chapter, index) => {
+            const item = document.createElement('div');
+            item.className = 'chapter-item';
+            item.dataset.index = index;
+            item.onclick = () => { this.video.currentTime = chapter.time; };
+
+            item.innerHTML = `
+                <div class="chapter-thumbnail"></div>
+                <div class="chapter-info">
+                    <h4>${chapter.title}</h4>
+                    <p>${this.formatTime(chapter.time)}</p>
+                </div>
+            `;
+            this.ui.chaptersContent.appendChild(item);
+        });
+    }
+
+    renderChapterMarkers() {
+        this.ui.chapterMarkersContainer.innerHTML = '';
+        const duration = this.video.duration || 1;
+        this.config.chaptersData.forEach(chapter => {
+            if (chapter.time > 0) {
+                const marker = document.createElement('div');
+                marker.className = 'chapter-marker';
+                marker.style.left = `${(chapter.time / duration) * 100}%`;
+                this.ui.chapterMarkersContainer.appendChild(marker);
+            }
+        });
+    }
+
+    updateChapterHighlight(currentTime) {
+        if (!this.container.classList.contains('side-panel-open')) return;
+        const data = this.config.chaptersData;
         let foundIndex = -1;
-        for (let i = 0; i < this.config.transcriptData.length; i++) {
-            const line = this.config.transcriptData[i];
-            if (currentTime >= parseFloat(line.start) && currentTime < parseFloat(line.end)) { // Use < for end to avoid overlap
+        for (let i = data.length - 1; i >= 0; i--) {
+            if (currentTime >= data[i].time) {
                 foundIndex = i;
                 break;
             }
         }
 
-        if (foundIndex !== this.config.currentTranscriptIndex) {
-            // Remove old highlight if exists
-            if (this.config.currentTranscriptIndex !== -1) {
-                const oldActive = this.ui.transcriptContent.querySelector(`[data-index="${this.config.currentTranscriptIndex}"]`);
-                if (oldActive) oldActive.classList.remove('active-word');
-            }
-
-            // Add new highlight if a word is found
+        if (foundIndex !== this.config.activeIndices.chapter) {
+            const oldActive = this.ui.chaptersContent.querySelector('.chapter-item.active');
+            if (oldActive) oldActive.classList.remove('active');
             if (foundIndex !== -1) {
-                const newActive = this.ui.transcriptContent.querySelector(`[data-index="${foundIndex}"]`);
-                if (newActive) {
-                    newActive.classList.add('active-word');
-                    // Scroll transcript to view
-                    newActive.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
+                const newActive = this.ui.chaptersContent.querySelector(`[data-index="${foundIndex}"]`);
+                if (newActive) newActive.classList.add('active');
             }
-            this.config.currentTranscriptIndex = foundIndex;
+            this.config.activeIndices.chapter = foundIndex;
         }
     }
 
+    renderSummary() {
+        const { title, points } = this.config.summaryData;
+        const listItems = points.map(point => `<li>${point}</li>`).join('');
+        this.ui.summaryContent.innerHTML = `<h4>${title}</h4><ul>${listItems}</ul>`;
+    }
+
+    openSidePanel(defaultTab = 'transcript') {
+        const isPanelOpen = this.container.classList.contains('side-panel-open');
+        if (!isPanelOpen) {
+            this.container.classList.add('side-panel-open');
+            this.config.settings.sidePanel = true;
+            this.savePreferences();
+        }
+        this.switchTab(defaultTab);
+        this.ui.transcriptBtn.classList.add('active');
+        this.ui.chaptersBtn.classList.add('active');
+    }
+
+    closeSidePanel() {
+        this.container.classList.remove('side-panel-open');
+        this.config.settings.sidePanel = false;
+        this.savePreferences();
+        this.ui.transcriptBtn.classList.remove('active');
+        this.ui.chaptersBtn.classList.remove('active');
+    }
+
+    switchTab(tabId) {
+        this.ui.sidePanelTabs.forEach(tab => {
+            const content = document.getElementById(tab.getAttribute('aria-controls'));
+            if (tab.id === `tab-${tabId}`) {
+                tab.classList.add('active');
+                tab.setAttribute('aria-selected', 'true');
+                content.classList.add('active');
+            } else {
+                tab.classList.remove('active');
+                tab.setAttribute('aria-selected', 'false');
+                content.classList.remove('active');
+            }
+        });
+    }
+
+    // --- 7. Preferences ---
     loadPreferences() {
         try {
             const saved = localStorage.getItem('webplayer_prefs');
             if (!saved) {
-                console.log("WebPlayer Pro V4: No preferences found. Ready 🚀");
+                console.log("WebPlayer Pro V6: No preferences found. Ready 🚀");
                 return;
             }
             const prefs = JSON.parse(saved);
@@ -654,20 +784,25 @@ class WebPlayerPro {
             const toggleElements = {
                 theater: document.getElementById('theaterModeToggle'),
                 eco: document.getElementById('ecoModeToggle'),
-                transcript: this.ui.transcriptBtn,
                 dialogueBoost: document.getElementById('dialogueBoostToggle'),
-                spatial: document.getElementById('spatialAudioToggle'),
-                smartZoom: document.getElementById('smartZoomToggle'),
+                spatialAudio: document.getElementById('spatialAudioToggle'),
                 upscale: document.getElementById('upscaleToggle')
             };
 
             for (const key in toggleElements) {
-                if (this.config.settings[key] && toggleElements[key]) {
-                    // Directly call the toggle logic, but prevent re-saving preferences
-                    this.toggleSetting(key, toggleElements[key]);
+                if (this.config.settings[key] === true && toggleElements[key]) {
+                    // Set initial state without toggling, as the handlers will be called by initAudioEngine or other init functions
+                    toggleElements[key].setAttribute('aria-checked', 'true');
+                    const span = toggleElements[key].querySelector('span');
+                    if (span) {
+                        span.innerText = 'ON';
+                        span.style.color = 'var(--accent-color)';
+                    }
                 }
             }
-            console.log("WebPlayer Pro V4: Preferences loaded 💾");
+            if (this.config.settings.sidePanel) this.openSidePanel();
+
+            console.log("WebPlayer Pro V6: Preferences loaded 💾");
         } catch (e) { console.error("Failed to load preferences:", e); }
     }
     savePreferences() {
