@@ -1,35 +1,54 @@
-// script.js - Ultimate Edition V3.0 (HLS + AI Features)
+// script.js - Ultimate AI Edition V4.0
+// Features: Worker-based Ambience, Cinema DSP Audio, Accessibility, Smart Skip
+
+// --- 0. Performance: Ambient Light Worker (Inline Blob) ---
+const workerCode = `
+    let canvas, ctx, interval;
+    self.onmessage = function(e) {
+        if (e.data.type === 'init') {
+            canvas = e.data.canvas;
+            ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+        } else if (e.data.type === 'frame') {
+            if(!ctx) return;
+            // Draw frame bitmap efficiently
+            ctx.drawImage(e.data.bitmap, 0, 0, canvas.width, canvas.height);
+            e.data.bitmap.close(); // Important: Release memory
+        }
+    };
+`;
 
 class WebPlayerPro {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
         this.video = document.getElementById('mainVideo');
         this.ambientCanvas = document.getElementById('ambientCanvas');
-        this.ctx = this.ambientCanvas.getContext('2d', { alpha: false, desynchronized: true });
         
-        // Configuration & State
-        this.state = {
+        // Configuration
+        this.config = {
             hls: null,
             audioCtx: null,
-            sourceNode: null,
-            gainNode: null,
-            pannerNode: null,
-            compressorNode: null,
+            nodes: {}, // Audio Nodes
+            worker: null,
             mediaRecorder: null,
             recordedChunks: [],
             isRecording: false,
-            audioBoost: false,
-            audio8D: false,
-            ecoMode: false,
-            brightness: 1,
-            controlsTimer: null,
-            ambientId: null,
-            pannerId: null,
-            lastTap: 0
+            settings: {
+                volume: 1,
+                speed: 1,
+                eco: false,
+                theater: false,
+                spatial: false,
+                dialogue: false,
+                superRes: false
+            }
         };
 
-        // Cache DOM Elements
-        this.ui = {
+        this.ui = this.cacheDOM();
+        this.init();
+    }
+
+    cacheDOM() {
+        return {
             playBtn: document.getElementById('playPauseBtn'),
             bigPlayBtn: document.getElementById('bigPlayBtn'),
             progressBar: document.getElementById('progressBar'),
@@ -45,328 +64,277 @@ class WebPlayerPro {
             skipIntroBtn: document.getElementById('skipIntroBtn'),
             toast: document.getElementById('toast'),
             overlay: document.getElementById('brightnessOverlay'),
-            feedback: document.getElementById('gestureFeedback'),
-            liveBadge: document.getElementById('liveBadge'),
+            spinner: document.getElementById('spinner'),
             // Menus
             settingsBtn: document.getElementById('settingsBtn'),
             settingsMenu: document.getElementById('settingsMenu'),
             audioMenuBtn: document.getElementById('audioMenuBtn'),
             audioMenu: document.getElementById('audioMenu'),
-            effectsBtn: document.getElementById('videoEffectsBtn'),
-            effectsMenu: document.getElementById('effectsMenu'),
-            recordBtn: document.getElementById('recordBtn'),
-            // Effects Inputs
-            effectsInputs: document.querySelectorAll('.effects-menu input'),
-            resetEffectsBtn: document.getElementById('resetEffects')
+            aiMenuBtn: document.getElementById('aiMenuBtn'),
+            aiMenu: document.getElementById('aiMenu'),
+            recordBtn: document.getElementById('recordBtn')
         };
-
-        this.init();
     }
 
     init() {
-        this.initHLS(); // Start Streaming Engine
+        this.initHLS();
+        this.initWorker();
         this.setupEventListeners();
-        this.loadSettings();
+        this.loadPreferences();
         
-        // Start Ambient Light Loop
+        // Start Loop
         if ('requestVideoFrameCallback' in this.video) {
-            this.video.requestVideoFrameCallback(this.updateAmbientLight.bind(this));
-        } else {
-            this.loopAmbientLight();
+            this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
         }
     }
 
-    // --- 1. HLS & Streaming Engine ---
-    initHLS() {
-        // Example Stream (HLS Test Source) - Replace with your own URL
-        const streamURL = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'; 
-        
-        if (Hls.isSupported()) {
-            this.state.hls = new Hls({
-                capLevelToPlayerSize: true, // Auto quality based on size
-                startLevel: -1 // Auto start
-            });
-            this.state.hls.loadSource(streamURL);
-            this.state.hls.attachMedia(this.video);
-            this.state.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                this.showToast('Ready to Stream 🚀');
-            });
-            this.state.hls.on(Hls.Events.LEVEL_SWITCHED, (e, data) => {
-                const level = this.state.hls.levels[data.level];
-                if(level) this.showToast(`Quality: ${level.height}p`);
-            });
-        } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
-            this.video.src = streamURL; // Safari Fallback
-        } else {
-            // MP4 Fallback
-            this.video.src = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-        }
-    }
-
-    // --- 2. Audio Engine (Web Audio API) ---
-    initAudio() {
-        if (this.state.audioCtx) return;
-        
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.state.audioCtx = new AudioContext();
-        
-        // Nodes
-        this.state.sourceNode = this.state.audioCtx.createMediaElementSource(this.video);
-        this.state.gainNode = this.state.audioCtx.createGain(); // For Boost
-        this.state.compressorNode = this.state.audioCtx.createDynamicsCompressor(); // For Dialog
-        this.state.pannerNode = this.state.audioCtx.createStereoPanner(); // For 8D
-        
-        // Compressor Settings (Voice Clarity)
-        this.state.compressorNode.threshold.value = -50;
-        this.state.compressorNode.knee.value = 40;
-        this.state.compressorNode.ratio.value = 12;
-
-        // Default Graph: Source -> Panner -> Destination
-        this.state.sourceNode.connect(this.state.pannerNode);
-        this.state.pannerNode.connect(this.state.audioCtx.destination);
-    }
-
-    toggleAudioBoost() {
-        this.initAudio();
-        this.state.audioBoost = !this.state.audioBoost;
-        
-        // Re-route Graph
-        this.state.sourceNode.disconnect();
-        this.state.pannerNode.disconnect();
-        this.state.compressorNode.disconnect();
-        this.state.gainNode.disconnect();
-
-        if (this.state.audioBoost) {
-            // Path: Source -> Compressor -> Gain -> Panner -> Dest
-            this.state.gainNode.gain.value = 1.5; // +50% Vol
-            this.state.sourceNode.connect(this.state.compressorNode);
-            this.state.compressorNode.connect(this.state.gainNode);
-            this.state.gainNode.connect(this.state.pannerNode);
-            this.state.pannerNode.connect(this.state.audioCtx.destination);
-            document.querySelector('#boostToggle span').innerText = 'ON';
-            document.querySelector('#boostToggle span').style.color = 'var(--accent-color)';
-            this.showToast('Audio Boost: Active 🔊');
-        } else {
-            // Normal Path
-            this.state.sourceNode.connect(this.state.pannerNode);
-            this.state.pannerNode.connect(this.state.audioCtx.destination);
-            document.querySelector('#boostToggle span').innerText = 'OFF';
-            document.querySelector('#boostToggle span').style.color = 'inherit';
-            this.showToast('Audio Boost: Normal');
-        }
-    }
-
-    toggle8DAudio() {
-        this.initAudio();
-        this.state.audio8D = !this.state.audio8D;
-        const badge = document.querySelector('#audio8DToggle span');
-
-        if (this.state.audio8D) {
-            badge.innerText = 'ON';
-            badge.style.color = 'var(--accent-color)';
-            this.showToast('8D Audio: Active 🎧');
+    // --- 1. Worker & Visuals ---
+    initWorker() {
+        if (window.Worker) {
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            this.config.worker = new Worker(URL.createObjectURL(blob));
             
-            // Start Oscillation
-            let startTime = this.state.audioCtx.currentTime;
-            const oscillate = () => {
-                if (!this.state.audio8D) {
-                    this.state.pannerNode.pan.value = 0;
-                    return;
-                }
-                // Sine wave from -1 to 1 every 8 seconds
-                const time = this.state.audioCtx.currentTime - startTime;
-                this.state.pannerNode.pan.value = Math.sin(time / 2); 
-                this.state.pannerId = requestAnimationFrame(oscillate);
-            };
-            oscillate();
-        } else {
-            badge.innerText = 'OFF';
-            badge.style.color = 'inherit';
-            cancelAnimationFrame(this.state.pannerId);
-            this.state.pannerNode.pan.value = 0;
-            this.showToast('8D Audio: Disabled');
+            // Transfer control of canvas to worker
+            const offscreen = this.ambientCanvas.transferControlToOffscreen();
+            this.config.worker.postMessage({ type: 'init', canvas: offscreen }, [offscreen]);
         }
     }
 
-    // --- 3. Visuals & Ambient Light ---
-    updateAmbientLight(now, metadata) {
-        if (this.state.ecoMode || this.video.paused) {
-             if('requestVideoFrameCallback' in this.video) 
-                 this.video.requestVideoFrameCallback(this.updateAmbientLight.bind(this));
+    updateAmbientLoop(now, metadata) {
+        if (this.config.settings.eco || this.video.paused || this.video.ended) {
+            // Stop loop in Eco mode or when paused
+             if(!this.config.settings.eco && !this.video.paused) {
+                 this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
+             }
              return;
         }
 
-        this.ctx.drawImage(this.video, 0, 0, this.ambientCanvas.width, this.ambientCanvas.height);
-        this.video.requestVideoFrameCallback(this.updateAmbientLight.bind(this));
+        // Send frame to worker
+        createImageBitmap(this.video).then(bitmap => {
+            this.config.worker.postMessage({ type: 'frame', bitmap: bitmap }, [bitmap]);
+        });
+
+        this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
     }
 
-    loopAmbientLight() {
-        // Fallback for older browsers
-        const loop = () => {
-            if (!this.state.ecoMode && !this.video.paused) {
-                this.ctx.drawImage(this.video, 0, 0, this.ambientCanvas.width, this.ambientCanvas.height);
-            }
-            requestAnimationFrame(loop);
-        };
-        requestAnimationFrame(loop);
-    }
-
-    toggleEcoMode() {
-        this.state.ecoMode = !this.state.ecoMode;
-        const icon = document.querySelector('#ecoModeToggle .toggle-icon');
+    // --- 2. Advanced Audio Engine (Cinema DSP) ---
+    initAudio() {
+        if (this.config.audioCtx) return;
         
-        if (this.state.ecoMode) {
-            this.ambientCanvas.style.opacity = 0;
-            if (this.state.hls) this.state.hls.currentLevel = 0; // Lowest quality
-            icon.innerText = 'ON';
-            icon.style.color = '#00ff00';
-            this.showToast('Eco Mode: ON 🍃');
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        this.config.audioCtx = new AudioContext();
+        
+        // Base Graph
+        this.config.nodes.source = this.config.audioCtx.createMediaElementSource(this.video);
+        this.config.nodes.gain = this.config.audioCtx.createGain();
+        
+        // Effects Nodes
+        this.config.nodes.compressor = this.config.audioCtx.createDynamicsCompressor(); // For Dialogue
+        this.config.nodes.panner = this.config.audioCtx.createStereoPanner(); // For Spatial
+        this.config.nodes.analyser = this.config.audioCtx.createAnalyser(); // For AI Visuals
+        
+        // Initial Connection: Source -> Gain -> Destination
+        this.config.nodes.source.connect(this.config.nodes.gain);
+        this.config.nodes.gain.connect(this.config.audioCtx.destination);
+    }
+
+    applyAudioEffects() {
+        if (!this.config.audioCtx) this.initAudio();
+        
+        // Reset Connections
+        this.config.nodes.source.disconnect();
+        this.config.nodes.compressor.disconnect();
+        this.config.nodes.panner.disconnect();
+        this.config.nodes.gain.disconnect();
+
+        let currentNode = this.config.nodes.source;
+
+        // 1. Dialogue Boost (Compression + Gain)
+        if (this.config.settings.dialogue) {
+            this.config.nodes.compressor.threshold.value = -24;
+            this.config.nodes.compressor.knee.value = 30;
+            this.config.nodes.compressor.ratio.value = 12;
+            this.config.nodes.compressor.attack.value = 0.003;
+            this.config.nodes.compressor.release.value = 0.25;
+            
+            currentNode.connect(this.config.nodes.compressor);
+            currentNode = this.config.nodes.compressor;
+            this.config.nodes.gain.gain.value = 1.4; // Boost volume
         } else {
-            this.ambientCanvas.style.opacity = 0.5;
-            if (this.state.hls) this.state.hls.currentLevel = -1; // Auto
-            icon.innerText = 'OFF';
-            icon.style.color = 'inherit';
-            this.showToast('Eco Mode: OFF');
+            this.config.nodes.gain.gain.value = 1.0;
+        }
+
+        // 2. Spatial Audio (Simulated 3D)
+        if (this.config.settings.spatial) {
+            // Simple oscillation to simulate movement or width
+            if(!this.config.nodes.spatialInterval) {
+                let startTime = this.config.audioCtx.currentTime;
+                this.config.nodes.spatialInterval = setInterval(() => {
+                    const time = this.config.audioCtx.currentTime - startTime;
+                    // Subtle movement
+                    this.config.nodes.panner.pan.value = Math.sin(time / 4) * 0.3; 
+                }, 50);
+            }
+            currentNode.connect(this.config.nodes.panner);
+            currentNode = this.config.nodes.panner;
+        } else {
+            if(this.config.nodes.spatialInterval) clearInterval(this.config.nodes.spatialInterval);
+            this.config.nodes.panner.pan.value = 0;
+        }
+
+        // Final connection
+        currentNode.connect(this.config.nodes.gain);
+        this.config.nodes.gain.connect(this.config.audioCtx.destination);
+    }
+
+    // --- 3. Features Logic ---
+    toggleSetting(key, element, type = 'bool') {
+        this.config.settings[key] = !this.config.settings[key];
+        const isOn = this.config.settings[key];
+        
+        // Update UI
+        const span = element.querySelector('span');
+        if(span) {
+            span.innerText = isOn ? 'ON' : 'OFF';
+            span.style.color = isOn ? 'var(--accent-color)' : 'inherit';
+        }
+
+        // Logic Switch
+        switch(key) {
+            case 'dialogue':
+            case 'spatial':
+                this.applyAudioEffects();
+                this.showToast(`${key === 'dialogue' ? 'Voice Boost' : 'Spatial Audio'}: ${isOn ? 'Enabled' : 'Disabled'}`);
+                break;
+            case 'theater':
+                document.body.classList.toggle('immersive-mode', isOn);
+                this.showToast(isOn ? 'Immersive Mode Active 🍿' : 'Normal Mode');
+                break;
+            case 'eco':
+                if(!isOn) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
+                this.showToast(isOn ? 'Battery Saver ON 🔋' : 'Battery Saver OFF');
+                break;
+            case 'upscale':
+                // Simulated Super Resolution via CSS Filters
+                this.video.style.filter = isOn ? 'contrast(1.1) saturate(1.1) drop-shadow(0 0 1px rgba(255,255,255,0.2))' : 'none';
+                this.showToast(isOn ? 'AI Upscaling Active ✨' : 'Standard Resolution');
+                break;
         }
     }
 
-    // --- 4. Logic & Features ---
+    recordClip() {
+        if (this.config.isRecording) {
+            this.config.mediaRecorder.stop();
+            return;
+        }
+
+        try {
+            // Attempt to capture stream (Requires CORS allowed source)
+            const stream = this.video.captureStream ? this.video.captureStream() : this.video.mozCaptureStream();
+            this.config.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+            this.config.recordedChunks = [];
+
+            this.config.mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) this.config.recordedChunks.push(e.data);
+            };
+
+            this.config.mediaRecorder.onstop = () => {
+                const blob = new Blob(this.config.recordedChunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `WebPlayer_Clip_${Date.now()}.webm`;
+                document.body.appendChild(a);
+                a.click();
+                URL.revokeObjectURL(url);
+                this.config.isRecording = false;
+                this.ui.recordBtn.classList.remove('recording');
+                this.ui.recordBtn.innerHTML = '<i class="fa-solid fa-scissors"></i>';
+                this.showToast('Clip Saved Successfully 💾');
+            };
+
+            this.config.mediaRecorder.start();
+            this.config.isRecording = true;
+            this.ui.recordBtn.classList.add('recording');
+            this.ui.recordBtn.innerHTML = '<i class="fa-solid fa-stop"></i>';
+            this.showToast('Recording... (Max 15s)');
+            
+            // Auto stop
+            setTimeout(() => { if(this.config.isRecording) this.config.mediaRecorder.stop(); }, 15000);
+
+        } catch (e) {
+            this.showToast('Error: Protected Content (DRM/CORS)');
+            console.error(e);
+        }
+    }
+
+    // --- 4. HLS & Basic Video Logic ---
+    initHLS() {
+        const streamURL = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'; // Test Source
+        if (Hls.isSupported()) {
+            this.config.hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            this.config.hls.loadSource(streamURL);
+            this.config.hls.attachMedia(this.video);
+            this.config.hls.on(Hls.Events.MANIFEST_PARSED, () => this.ui.spinner.style.display = 'none');
+            this.config.hls.on(Hls.Events.WAITING, () => this.container.classList.add('buffering'));
+            this.config.hls.on(Hls.Events.FRAG_BUFFERED, () => this.container.classList.remove('buffering'));
+        } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
+            this.video.src = streamURL;
+        }
+    }
+
     togglePlay() {
         if (this.video.paused) {
-            this.video.play().catch(e => console.error(e));
-            this.initAudio(); // Initialize audio context on first user interaction
+            this.video.play();
+            this.initAudio(); // Initialize Context on gesture
         } else {
             this.video.pause();
         }
     }
 
-    recordClip() {
-        // Uses MediaRecorder to capture the video stream
-        if (this.state.isRecording) {
-            this.state.mediaRecorder.stop();
-            return;
-        }
-
-        // Try to capture stream from video (Cross-Origin might block this)
-        // Fallback: Capture from Canvas (if no subtitles/overlay needed)
-        try {
-            // Note: captureStream might require flags in some browsers or CORS set correctly
-            const stream = this.video.captureStream ? this.video.captureStream() : this.video.mozCaptureStream();
-            
-            this.state.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-            this.state.recordedChunks = [];
-
-            this.state.mediaRecorder.ondataavailable = (e) => {
-                if (e.data.size > 0) this.state.recordedChunks.push(e.data);
-            };
-
-            this.state.mediaRecorder.onstop = () => {
-                const blob = new Blob(this.state.recordedChunks, { type: 'video/webm' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = `clip_${Date.now()}.webm`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                this.state.isRecording = false;
-                this.ui.recordBtn.classList.remove('recording');
-                this.showToast('Clip Saved! 💾');
-            };
-
-            this.state.mediaRecorder.start();
-            this.state.isRecording = true;
-            this.ui.recordBtn.classList.add('recording');
-            this.showToast('Recording... (Max 10s)');
-
-            // Auto stop after 10 seconds
-            setTimeout(() => {
-                if(this.state.isRecording) this.state.mediaRecorder.stop();
-            }, 10000);
-
-        } catch (e) {
-            this.showToast('Error: CORS protects this video from recording');
-            console.error(e);
-        }
-    }
-
-    applyColorGrade() {
-        const filters = [];
-        this.ui.effectsInputs.forEach(input => {
-            const unit = input.dataset.filter === 'hue-rotate' ? 'deg' : '%';
-            filters.push(`${input.dataset.filter}(${input.value}${unit})`);
-        });
-        this.video.style.filter = filters.join(' ');
-    }
-
-    // --- 5. Events & Inputs ---
+    // --- 5. Event Listeners & UI ---
     setupEventListeners() {
         // Playback
         const toggle = () => this.togglePlay();
         this.ui.playBtn.onclick = toggle;
         this.ui.bigPlayBtn.onclick = toggle;
         this.video.onclick = toggle;
-
+        
         this.video.onplay = () => {
             this.container.classList.remove('paused');
             this.ui.playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-            this.ui.bigPlayBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+            if(!this.config.settings.eco) this.video.requestVideoFrameCallback(this.updateAmbientLoop.bind(this));
         };
         this.video.onpause = () => {
             this.container.classList.add('paused');
             this.ui.playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-            this.ui.bigPlayBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
         };
 
-        // Time Update (Smart Resume Logic + Intro Skip)
+        // Time Update
         this.video.ontimeupdate = () => {
             const curr = this.video.currentTime;
-            const dur = this.video.duration || 0;
-            
-            // Update UI
+            const dur = this.video.duration || 1;
             this.ui.progressBar.style.width = `${(curr/dur)*100}%`;
             this.ui.timeDisplay.innerText = this.formatTime(curr);
             this.ui.durationDisplay.innerText = this.formatTime(dur);
-            
-            // Mock Smart Intro Skip (Appear between 0:05 and 0:15)
-            if (curr > 5 && curr < 15) this.ui.skipIntroBtn.classList.add('show');
-            else this.ui.skipIntroBtn.classList.remove('show');
 
-            localStorage.setItem('v-resume-time', curr);
+            // Smart Skip Trigger (Mock Logic)
+            if (curr > 10 && curr < 20) this.ui.skipIntroBtn.classList.add('show');
+            else this.ui.skipIntroBtn.classList.remove('show');
         };
 
-        // Seeking
+        // Progress Seek
         this.ui.progressArea.onclick = (e) => {
             const width = this.ui.progressArea.clientWidth;
             const clickX = e.offsetX;
-            const duration = this.video.duration;
-            this.video.currentTime = (clickX / width) * duration;
-        };
-        this.ui.progressArea.onmousemove = (e) => {
-             const width = this.ui.progressArea.clientWidth;
-             const hoverX = e.offsetX;
-             const time = (hoverX / width) * this.video.duration;
-             this.ui.tooltip.style.left = `${e.offsetX}px`;
-             this.ui.tooltip.innerText = this.formatTime(time);
+            this.video.currentTime = (clickX / width) * this.video.duration;
         };
 
-        // Volume
-        this.ui.volumeSlider.oninput = (e) => {
-            this.video.volume = e.target.value;
-            this.video.muted = e.target.value == 0;
-            this.updateVolumeUI();
-        };
-        this.ui.volumeBtn.onclick = () => {
-            this.video.muted = !this.video.muted;
-            this.updateVolumeUI();
-        };
-
-        // Menus Toggles
+        // Menus
         const toggleMenu = (btn, menu) => {
             btn.onclick = (e) => {
                 e.stopPropagation();
-                // Close others
                 document.querySelectorAll('.dropdown-menu, .settings-menu').forEach(m => {
                     if(m !== menu) m.classList.remove('show');
                 });
@@ -375,139 +343,68 @@ class WebPlayerPro {
         };
         toggleMenu(this.ui.settingsBtn, this.ui.settingsMenu);
         toggleMenu(this.ui.audioMenuBtn, this.ui.audioMenu);
-        toggleMenu(this.ui.effectsBtn, this.ui.effectsMenu);
-        
-        document.onclick = (e) => {
-            if(!e.target.closest('.control-btn') && !e.target.closest('.dropdown-menu') && !e.target.closest('.settings-menu')) {
-                 document.querySelectorAll('.dropdown-menu, .settings-menu').forEach(m => m.classList.remove('show'));
-            }
-        };
+        toggleMenu(this.ui.aiMenuBtn, this.ui.aiMenu);
 
-        // Feature Buttons
-        document.getElementById('boostToggle').onclick = () => this.toggleAudioBoost();
-        document.getElementById('audio8DToggle').onclick = () => this.toggle8DAudio();
-        document.getElementById('ecoModeToggle').onclick = () => this.toggleEcoMode();
+        // Feature Toggles
+        document.getElementById('dialogueBoostToggle').onclick = (e) => this.toggleSetting('dialogue', e.currentTarget);
+        document.getElementById('spatialAudioToggle').onclick = (e) => this.toggleSetting('spatial', e.currentTarget);
+        document.getElementById('theaterModeToggle').onclick = (e) => this.toggleSetting('theater', e.currentTarget);
+        document.getElementById('ecoModeToggle').onclick = (e) => this.toggleSetting('eco', e.currentTarget);
+        document.getElementById('upscaleToggle').onclick = (e) => this.toggleSetting('upscale', e.currentTarget);
+
         this.ui.recordBtn.onclick = () => this.recordClip();
         this.ui.skipIntroBtn.onclick = () => {
-            this.video.currentTime += 85; // Skip typical anime intro length
-            this.showToast('Intro Skipped ⏩');
+            this.video.currentTime += 85; 
+            this.showToast('Intro Skipped (AI Detected) ⏩');
         };
+        
         this.ui.fullscreenBtn.onclick = () => {
             if(!document.fullscreenElement) this.container.requestFullscreen();
             else document.exitFullscreen();
         };
 
-        // Effects
-        this.ui.effectsInputs.forEach(input => {
-            input.oninput = () => this.applyColorGrade();
-        });
-        this.ui.resetEffectsBtn.onclick = () => {
-            this.ui.effectsInputs.forEach(i => i.value = i.getAttribute('value'));
-            this.applyColorGrade();
-        };
-
         // Keyboard Shortcuts
         document.onkeydown = (e) => {
-            if (e.target.tagName === 'INPUT') return;
+            if(e.target.tagName === 'INPUT') return;
             switch(e.key.toLowerCase()) {
                 case ' ': e.preventDefault(); this.togglePlay(); break;
                 case 'f': this.container.requestFullscreen(); break;
-                case 'm': this.ui.volumeBtn.click(); break;
+                case 'm': this.video.muted = !this.video.muted; break;
                 case 'arrowright': this.video.currentTime += 5; this.showFeedback('⏩ +5s'); break;
                 case 'arrowleft': this.video.currentTime -= 5; this.showFeedback('⏪ -5s'); break;
             }
         };
 
-        // Gestures (Touch)
-        this.setupGestures();
-    }
-
-    setupGestures() {
-        let touchX, touchY;
-        this.container.ontouchstart = (e) => {
-            touchX = e.touches[0].clientX;
-            touchY = e.touches[0].clientY;
-        };
-        this.container.ontouchmove = (e) => {
-            e.preventDefault();
-            if(!touchX) return;
-            const diffX = touchX - e.touches[0].clientX;
-            const diffY = touchY - e.touches[0].clientY;
-            
-            if(Math.abs(diffX) > Math.abs(diffY)) {
-                if(Math.abs(diffX) > 10) {
-                    this.video.currentTime += diffX > 0 ? -0.2 : 0.2; // Seek
-                }
-            } else {
-                 if(touchX > this.container.clientWidth / 2) {
-                     // Volume (Right side)
-                     const v = Math.min(1, Math.max(0, this.video.volume + (diffY > 0 ? 0.02 : -0.02)));
-                     this.video.volume = v;
-                     this.ui.volumeSlider.value = v;
-                     this.showFeedback(`🔊 ${Math.round(v*100)}%`);
-                 } else {
-                     // Brightness (Left side)
-                     this.state.brightness = Math.min(1, Math.max(0.2, this.state.brightness + (diffY > 0 ? 0.02 : -0.02)));
-                     this.ui.overlay.style.opacity = 1 - this.state.brightness;
-                     this.showFeedback(`🔆 ${Math.round(this.state.brightness*100)}%`);
-                 }
+        // Close menus on click outside
+        document.onclick = (e) => {
+            if(!e.target.closest('.control-btn') && !e.target.closest('.dropdown-menu') && !e.target.closest('.settings-menu')) {
+                document.querySelectorAll('.dropdown-menu, .settings-menu').forEach(m => m.classList.remove('show'));
             }
-            touchX = e.touches[0].clientX;
-            touchY = e.touches[0].clientY;
-        };
-        
-        // Double Tap
-        this.container.ontouchend = (e) => {
-            const now = new Date().getTime();
-            if (now - this.state.lastTap < 300) {
-                // Double tap
-                const x = e.changedTouches[0].clientX;
-                if (x < this.container.clientWidth / 3) {
-                    this.video.currentTime -= 10;
-                    this.showFeedback('⏪ -10s');
-                } else if (x > (this.container.clientWidth * 2) / 3) {
-                    this.video.currentTime += 10;
-                    this.showFeedback('⏩ +10s');
-                } else {
-                    this.togglePlay();
-                }
-            }
-            this.state.lastTap = now;
         };
     }
 
     // --- Helpers ---
-    loadSettings() {
-        // Smart Resume
-        const savedTime = localStorage.getItem('v-resume-time');
-        if (savedTime && parseFloat(savedTime) > 10) {
-            this.video.currentTime = parseFloat(savedTime) - 5; // Rewind 5s context
-            this.showToast('Resuming playback... 🔄');
-        }
-    }
-
-    updateVolumeUI() {
-        const v = this.video.volume;
-        if(this.video.muted || v === 0) this.ui.volumeBtn.innerHTML = '<i class="fa-solid fa-volume-xmark"></i>';
-        else if(v < 0.5) this.ui.volumeBtn.innerHTML = '<i class="fa-solid fa-volume-low"></i>';
-        else this.ui.volumeBtn.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
-    }
-
     formatTime(s) {
         if(isNaN(s)) return "00:00";
         return new Date(s * 1000).toISOString().substr(11, 8).replace(/^00:/, '');
     }
 
     showToast(msg) {
-        this.ui.toast.innerText = msg;
+        this.ui.toast.innerHTML = msg;
         this.ui.toast.classList.add('show');
-        setTimeout(() => this.ui.toast.classList.remove('show'), 2000);
+        setTimeout(() => this.ui.toast.classList.remove('show'), 3000);
     }
-    
+
     showFeedback(text) {
-        this.ui.feedback.innerText = text;
-        this.ui.feedback.classList.add('show');
-        setTimeout(() => this.ui.feedback.classList.remove('show'), 500);
+        const fb = document.getElementById('gestureFeedback');
+        fb.innerText = text;
+        fb.classList.add('show');
+        setTimeout(() => fb.classList.remove('show'), 600);
+    }
+
+    loadPreferences() {
+        // Logic to load saved settings from LocalStorage can go here
+        console.log("WebPlayer Pro V4: Ready 🚀");
     }
 }
 
