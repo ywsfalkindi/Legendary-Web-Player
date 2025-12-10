@@ -1,132 +1,171 @@
-/* style.css */
-@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+/* style.css - Ultimate Edition */
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
 
-/* 1. Best Practice: CSS Variables */
 :root {
-    --primary-color: #e50914; /* لون التمييز */
-    --bg-overlay: rgba(0, 0, 0, 0.7);
+    --primary-color: #e50914;
     --text-color: #ffffff;
-    --hover-scale: 1.1;
+    --bg-overlay: rgba(0, 0, 0, 0.6);
+    --glass-bg: rgba(20, 20, 20, 0.85);
+    --control-height: 50px;
 }
 
-* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Tajawal', sans-serif; outline: none; }
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Tajawal', sans-serif; outline: none; -webkit-tap-highlight-color: transparent; }
 
 body {
-    background-color: #0f0f0f;
+    background-color: #050505;
     display: flex; justify-content: center; align-items: center;
     min-height: 100vh;
+    overflow: hidden; /* لمنع ظهور أشرطة تمرير بسبب التوهج */
 }
 
+/* --- Ambient Light Effect --- */
+#ambientCanvas {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%; height: 90%;
+    filter: blur(80px) brightness(1.2); /* سر التوهج الناعم */
+    opacity: 0.6;
+    z-index: -1;
+    pointer-events: none;
+    transition: opacity 1s ease;
+}
+
+/* --- Player Container --- */
 .player-container {
     position: relative;
     width: 900px; max-width: 95%;
-    background: #000; border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 0 40px rgba(0,0,0,0.6);
     aspect-ratio: 16/9;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 10px 50px rgba(0,0,0,0.8);
+    transition: cursor 0.2s;
 }
 
-/* إخفاء المؤشر عند عدم الحركة في وضع ملء الشاشة */
 .player-container.hide-cursor { cursor: none; }
-
 video { width: 100%; height: 100%; object-fit: contain; }
 
-/* Spinner (دائرة التحميل) */
-.spinner {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    width: 50px; height: 50px;
-    border: 5px solid rgba(255,255,255,0.3);
-    border-top-color: var(--primary-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    display: none; /* مخفي افتراضياً */
-}
-.player-container.buffering .spinner { display: block; }
-
-@keyframes spin { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
-
-/* Controls Overlay */
+/* --- Controls Overlay --- */
 .controls-overlay {
     position: absolute; bottom: 0; left: 0; right: 0;
-    background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-    padding: 20px;
-    opacity: 0; transition: opacity 0.3s ease;
+    background: linear-gradient(to top, rgba(0,0,0,0.95), transparent);
+    padding: 0 20px 20px 20px;
+    opacity: 0; 
+    transition: opacity 0.3s ease;
+    display: flex; flex-direction: column; gap: 10px;
 }
 
+/* Show controls on hover or pause */
 .player-container:hover .controls-overlay,
-.player-container.paused .controls-overlay { opacity: 1; }
-
-/* Progress Bar */
-.progress-area {
-    height: 6px; background: rgba(255,255,255,0.3);
-    cursor: pointer; border-radius: 5px; margin-bottom: 15px; position: relative;
+.player-container.paused .controls-overlay,
+.player-container.show-controls .controls-overlay { 
+    opacity: 1; 
 }
+
+/* --- Progress Bar --- */
+.progress-area {
+    height: 5px; background: rgba(255,255,255,0.3);
+    cursor: pointer; border-radius: 5px; 
+    position: relative; transition: height 0.1s;
+}
+.progress-area:hover { height: 8px; }
+
 .progress-filled {
     height: 100%; background: var(--primary-color);
     width: 0%; border-radius: 5px; position: relative;
 }
 .progress-filled::after {
     content: ''; position: absolute; left: 0; top: 50%;
-    transform: translate(-50%, -50%);
-    width: 14px; height: 14px; background: var(--primary-color);
+    transform: translate(-50%, -50%) scale(0);
+    width: 15px; height: 15px; background: var(--primary-color);
     border-radius: 50%; border: 2px solid #fff;
-    opacity: 0; transition: opacity 0.2s;
+    transition: transform 0.2s;
 }
-.progress-area:hover .progress-filled::after { opacity: 1; }
+.progress-area:hover .progress-filled::after { transform: translate(-50%, -50%) scale(1); }
 
-/* Tooltip (الوقت فوق الشريط) */
 .progress-tooltip {
-    position: absolute; top: -35px; left: 0; /* JS will move this */
-    transform: translateX(-50%);
-    background: var(--bg-overlay); color: #fff;
-    padding: 5px 10px; border-radius: 5px; font-size: 12px;
-    display: none; pointer-events: none;
+    position: absolute; top: -40px; left: 0; transform: translateX(-50%);
+    background: var(--bg-overlay); color: #fff; padding: 5px 10px;
+    border-radius: 4px; font-size: 12px; font-weight: bold;
+    display: none; pointer-events: none; white-space: nowrap;
 }
 .progress-area:hover .progress-tooltip { display: block; }
 
-/* Buttons & Layout */
-.buttons-row { display: flex; justify-content: space-between; align-items: center; color: var(--text-color); }
+/* --- Buttons & Layout --- */
+.buttons-row { display: flex; justify-content: space-between; align-items: center; }
 .left-controls, .right-controls { display: flex; align-items: center; gap: 15px; }
 
-button {
+.control-btn {
     background: none; border: none; color: #fff;
     font-size: 18px; cursor: pointer; opacity: 0.85; transition: 0.2s;
+    width: 35px; height: 35px; display: grid; place-items: center;
 }
-button:hover { opacity: 1; color: var(--primary-color); transform: scale(var(--hover-scale)); }
+.control-btn:hover { opacity: 1; color: var(--primary-color); transform: scale(1.1); }
 
-/* Volume */
-.volume-container { display: flex; align-items: center; gap: 8px; }
-#volumeSlider { width: 0; height: 4px; transition: 0.3s; overflow: hidden; appearance: none; background: #fff; border-radius: 2px;}
-.volume-container:hover #volumeSlider { width: 70px; }
+/* --- Volume Slider --- */
+.volume-container { display: flex; align-items: center; gap: 0px; overflow: hidden; transition: 0.3s; }
+#volumeSlider {
+    width: 0; height: 4px; appearance: none; background: #fff; border-radius: 2px;
+    transition: width 0.3s ease; cursor: pointer;
+}
+.volume-container:hover #volumeSlider, 
+#volumeSlider:focus-visible { width: 70px; margin-right: 10px; }
 
-/* Settings Menu */
+/* --- Settings Menu --- */
 .settings-container { position: relative; }
 .settings-menu {
-    position: absolute; bottom: 40px; right: -20px;
-    background: rgba(20, 20, 20, 0.95);
-    border-radius: 8px; padding: 5px 0;
-    width: 100px; display: none;
-    flex-direction: column;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+    position: absolute; bottom: 55px; right: 0;
+    background: var(--glass-bg); backdrop-filter: blur(10px);
+    border-radius: 8px; padding: 10px 0; width: 140px;
+    display: none; flex-direction: column;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);
 }
-.settings-menu.show { display: flex; }
-.settings-menu li {
-    list-style: none; padding: 8px 15px;
-    font-size: 14px; cursor: pointer; text-align: center;
-    transition: 0.2s;
-}
-.settings-menu li:hover { background: rgba(255,255,255,0.1); }
-.settings-menu li.active { color: var(--primary-color); font-weight: bold; }
+.settings-menu.show { display: flex; animation: slideUp 0.2s ease; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-/* Big Play Button */
-.big-play-btn {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 50px; width: 80px; height: 80px;
-    background: rgba(0,0,0,0.5); border-radius: 50%;
-    display: flex; justify-content: center; align-items: center;
-    border: 3px solid #fff; pointer-events: none;
-    opacity: 0; transition: 0.3s;
+.settings-menu li {
+    list-style: none; padding: 10px 15px; font-size: 13px; cursor: pointer;
+    transition: 0.2s; display: flex; justify-content: space-between; color: #ddd;
 }
-.player-container.paused .big-play-btn { opacity: 1; }
+.settings-menu li.menu-header { font-weight: bold; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.1); cursor: default; }
+.settings-menu li:not(.menu-header):hover { background: rgba(255,255,255,0.1); }
+.settings-menu li.active { color: var(--primary-color); }
+.settings-menu li.active::after { content: '✓'; font-weight: bold; }
+
+/* --- Toast Notification --- */
+.toast-notification {
+    position: absolute; top: 10%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.7); color: #fff; padding: 8px 16px;
+    border-radius: 20px; font-size: 14px; pointer-events: none;
+    opacity: 0; transition: opacity 0.3s;
+}
+.toast-notification.show { opacity: 1; }
+
+/* --- Spinner --- */
+.spinner {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1);
+    border-top-color: var(--primary-color); border-radius: 50%;
+    animation: spin 1s linear infinite; display: none;
+}
+.player-container.buffering .spinner { display: block; }
+@keyframes spin { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+/* --- Big Play Button --- */
+.big-play-btn {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 40px; width: 70px; height: 70px;
+    background: rgba(0,0,0,0.6); border-radius: 50%; color: #fff;
+    display: flex; justify-content: center; align-items: center;
+    border: none; pointer-events: none; opacity: 0; transition: 0.3s;
+}
+.player-container.paused .big-play-btn { opacity: 1; animation: pulse 2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(229, 9, 20, 0.4); } 70% { box-shadow: 0 0 0 15px rgba(229, 9, 20, 0); } 100% { box-shadow: 0 0 0 0 rgba(229, 9, 20, 0); } }
+
+/* --- Mobile Adjustments --- */
+@media (max-width: 768px) {
+    .volume-container:hover #volumeSlider { width: 60px; }
+    .progress-tooltip { display: none !important; } /* Hide tooltip on touch */
+    .controls-overlay { padding: 0 10px 10px 10px; }
+}
