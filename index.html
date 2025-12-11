@@ -3,21 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Web Player Pro - Legendary Edition (V7) - AI-Powered, WebGL Ambient, Spatial Audio.">
-    <title>Web Player Pro - Legendary AI Edition</title>
+    <meta name="description" content="Web Player Pro - Legendary Edition (Refined) - Optimized Performance.">
+    <title>Web Player Pro - Legendary Optimized</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd" defer></script>
-</head>
+    </head>
 <body>
 
     <canvas id="ambientCanvas"></canvas>
 
-    <div class="player-container" id="playerContainer" tabindex="0" role="application" aria-label="مشغل فيديو متطور">
+    <div class="player-container" id="playerContainer" tabindex="0" role="application">
         
         <div class="video-wrapper" id="videoWrapper">
-            <video id="mainVideo" crossOrigin="anonymous" playsinline preload="auto">
+            <video id="mainVideo" crossOrigin="anonymous" playsinline preload="metadata">
                 <track kind="captions" label="العربية" srclang="ar" src="subs-ar.vtt" default>
                 <track kind="chapters" label="الفصول" srclang="ar" src="chapters-ar.vtt">
             </video>
@@ -36,14 +34,14 @@
             
             <div class="spinner" id="spinner" role="status"></div>
             
-            <button class="big-play-btn" id="bigPlayBtn" aria-hidden="true"><i class="fa-solid fa-play"></i></button>
+            <button class="big-play-btn" id="bigPlayBtn"><i class="fa-solid fa-play"></i></button>
         </div>
 
-        <div class="toast-notification" id="toast" role="alert" aria-live="polite"></div>
+        <div class="toast-notification" id="toast" role="alert"></div>
 
         <div class="side-panel" id="sidePanel">
             <div class="side-panel-header">
-                <div class="tabs" role="tablist">
+                <div class="tabs">
                     <button id="tab-transcript" class="tab-btn active" data-tab="transcript">النص</button>
                     <button id="tab-chapters" class="tab-btn" data-tab="chapters">الفصول</button>
                     <button id="tab-notes" class="tab-btn" data-tab="notes">ملاحظاتي</button>
@@ -53,10 +51,10 @@
             <div class="side-panel-content">
                 <div id="content-transcript" class="tab-content active">
                     <div class="transcript-controls">
-                        <input type="text" id="aiSearchInput" placeholder="بحث ذكي (مثال: سيارة، بحر)..." class="search-input">
+                        <input type="text" id="aiSearchInput" placeholder="بحث ذكي (مثال: سيارة)..." class="search-input">
                         <select id="translateLangSelect">
-                            <option value="ar">الأصل (العربية)</option>
-                            <option value="en">English (AI Dub)</option>
+                            <option value="ar">العربية</option>
+                            <option value="en">English</option>
                         </select>
                     </div>
                     <div class="transcript-body" id="transcriptBody"></div>
@@ -105,14 +103,14 @@
                         </ul>
                     </div>
 
-                    <button id="sidePanelBtn" class="control-btn" title="القائمة الجانبية"><i class="fa-solid fa-bars"></i></button>
+                    <button id="sidePanelBtn" class="control-btn"><i class="fa-solid fa-bars"></i></button>
                     
                     <div class="dropdown-container">
                         <button id="settingsBtn" class="control-btn spin-icon"><i class="fa-solid fa-gear"></i></button>
                         <ul class="settings-menu" id="settingsMenu">
                             <li class="menu-header">الصوت</li>
-                            <li id="spatialAudioToggle">صوت مكاني 3D <span>OFF</span></li>
-                            <li id="dialogueBoostToggle">تعزيز الحوار <span>OFF</span></li>
+                            <li id="spatialAudioToggle">توسيع ستيريو (Haas) <span>OFF</span></li>
+                            <li id="dialogueBoostToggle">تعزيز الحوار (Smart) <span>OFF</span></li>
                             <li class="divider"></li>
                             <li class="menu-header">النظام</li>
                             <li id="theaterModeToggle">وضع المسرح <span>OFF</span></li>

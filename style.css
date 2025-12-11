@@ -1,4 +1,4 @@
-/* style.css - Legendary Edition V7 */
+/* style.css - Legendary Edition (Optimized) */
 @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
 
 :root {
@@ -7,23 +7,23 @@
     --glass-bg: rgba(12, 12, 12, 0.85);
     --glass-border: 1px solid rgba(255, 255, 255, 0.08);
     --text-main: #ffffff;
-    --text-muted: #aaaaaa;
     --radius-lg: 24px;
-    --radius-sm: 8px;
     --z-video: 1;
     --z-ambient: 0;
     --z-ui: 100;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Tajawal', sans-serif; outline: none; -webkit-tap-highlight-color: transparent; }
-
 body { background: #000; height: 100vh; display: flex; justify-content: center; align-items: center; overflow: hidden; }
 
-/* --- WebGL Ambient Canvas --- */
+/* --- 1. إصلاح WebGL Blur --- */
 #ambientCanvas {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    z-index: var(--z-ambient); pointer-events: none; opacity: 0.8;
+    z-index: var(--z-ambient); pointer-events: none; opacity: 0.7;
     transition: opacity 1s;
+    /* هذا الفلتر هو السر لجعل الإضاءة ناعمة جداً رغم دقة الكانفاس المنخفضة */
+    filter: blur(60px) saturate(200%);
+    transform: scale(1.1); /* لإخفاء الحواف الضبابية */
 }
 
 /* --- Player Container --- */
@@ -43,7 +43,7 @@ video { width: 100%; height: 100%; object-fit: contain; transition: filter 0.3s;
 
 /* Cinematic LUTs */
 video.lut-warm { filter: sepia(0.2) saturate(1.4) contrast(1.1); }
-video.lut-cool { filter: hue-rotate(180deg) sepia(0.1) saturate(0.8) contrast(1.2); } /* Mock Cool */
+video.lut-cool { filter: hue-rotate(180deg) sepia(0.1) saturate(0.8) contrast(1.2); }
 video.lut-bw { filter: grayscale(1) contrast(1.2); }
 video.lut-vintage { filter: url(#filter-vintage) sepia(0.3); }
 
@@ -57,11 +57,7 @@ video.lut-vintage { filter: url(#filter-vintage) sepia(0.3); }
     animation: dropPin 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 .spatial-pin:hover { transform: translate(-50%, -100%) rotate(45deg) scale(1.1); background: var(--accent); }
-.spatial-pin::after {
-    content: ''; position: absolute; width: 8px; height: 8px;
-    background: #fff; border-radius: 50%; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-}
+.spatial-pin::after { content: ''; position: absolute; width: 8px; height: 8px; background: #fff; border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); }
 @keyframes dropPin { from { transform: translate(-50%, -200%) rotate(45deg); opacity: 0; } to { opacity: 1; } }
 
 /* --- Controls UI --- */
@@ -74,9 +70,13 @@ video.lut-vintage { filter: url(#filter-vintage) sepia(0.3); }
 .player-container:hover .controls-overlay, .player-container.paused .controls-overlay { opacity: 1; }
 
 /* Progress Bar */
-.progress-area { height: 6px; background: rgba(255,255,255,0.2); border-radius: 10px; cursor: pointer; position: relative; transition: height 0.1s; }
+.progress-area { 
+    height: 6px; background: rgba(255,255,255,0.2); border-radius: 10px; 
+    cursor: pointer; position: relative; transition: height 0.1s;
+    touch-action: none; /* مهم جداً للإيماءات */
+}
 .progress-area:hover { height: 10px; }
-.progress-bar, .buffer-bar, .progress-filled { position: absolute; height: 100%; border-radius: 10px; left: 0; top: 0; }
+.progress-bar, .buffer-bar, .progress-filled { position: absolute; height: 100%; border-radius: 10px; left: 0; top: 0; pointer-events: none; }
 .progress-bar { width: 100%; overflow: hidden; }
 .buffer-bar { background: rgba(255,255,255,0.3); width: 0; transition: width 0.2s; }
 .progress-filled { background: linear-gradient(90deg, var(--primary), var(--accent)); width: 0; }
@@ -92,11 +92,9 @@ video.lut-vintage { filter: url(#filter-vintage) sepia(0.3); }
 /* Buttons & Rows */
 .buttons-row { display: flex; justify-content: space-between; align-items: center; }
 .left-controls, .right-controls { display: flex; align-items: center; gap: 10px; }
-
 .control-btn {
     background: none; border: none; color: #eee; font-size: 18px; width: 40px; height: 40px;
-    border-radius: 8px; cursor: pointer; display: flex; justify-content: center; align-items: center;
-    transition: 0.2s;
+    border-radius: 8px; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: 0.2s;
 }
 .control-btn:hover { background: rgba(255,255,255,0.15); color: #fff; transform: translateY(-2px); }
 .control-btn.active { color: var(--accent); }
@@ -104,7 +102,7 @@ video.lut-vintage { filter: url(#filter-vintage) sepia(0.3); }
 /* Volume */
 .volume-container { display: flex; align-items: center; width: 40px; overflow: hidden; transition: width 0.3s; background: rgba(255,255,255,0.05); border-radius: 20px; }
 .volume-container:hover { width: 120px; }
-#volumeSlider { flex-grow: 1; height: 4px; margin: 0 10px; accent-color: #fff; }
+#volumeSlider { flex-grow: 1; height: 4px; margin: 0 10px; accent-color: #fff; cursor: pointer; }
 
 /* Menus */
 .dropdown-container { position: relative; }
@@ -118,10 +116,7 @@ video.lut-vintage { filter: url(#filter-vintage) sepia(0.3); }
 .dropdown-menu.show, .settings-menu.show { display: flex; }
 .menu-header { font-size: 11px; color: var(--primary); text-transform: uppercase; font-weight: bold; padding: 5px 10px; pointer-events: none; }
 .divider { height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0; }
-li[role="menuitem"], li {
-    padding: 8px 12px; font-size: 13px; color: #ddd; border-radius: 6px; cursor: pointer;
-    display: flex; justify-content: space-between; align-items: center;
-}
+li { padding: 8px 12px; font-size: 13px; color: #ddd; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
 li:hover { background: rgba(255,255,255,0.1); color: #fff; }
 li.active { color: var(--accent); }
 .speed-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 5px; }
@@ -171,3 +166,4 @@ li.active { color: var(--accent); }
 @keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
 .toast-notification { position: absolute; top: 30px; left: 50%; transform: translateX(-50%) translateY(-20px); background: #333; color: #fff; padding: 10px 20px; border-radius: 20px; opacity: 0; transition: 0.3s; z-index: 200; pointer-events: none; }
 .toast-notification.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.brightness-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 60; }

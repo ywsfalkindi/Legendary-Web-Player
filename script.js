@@ -1,23 +1,23 @@
 /**
- * Web Player Pro - Legendary Edition V7
- * Features: WebGL Ambient, Spatial Audio, Gestures, Spatial Notes, VTT, Local AI
+ * Web Player Pro - Legendary Edition (Optimized V8)
+ * Refactored for: Performance, Battery Life, UX Persistence, and PC Support.
  */
 
-// --- 1. WebGL Ambient Engine (GPU Optimized) ---
+// --- 1. WebGL Ambient Engine (Battery Optimized) ---
 class AmbientEngine {
     constructor(canvas, sourceVideo) {
         this.canvas = canvas;
         this.video = sourceVideo;
         this.gl = this.canvas.getContext('webgl', { preserveDrawingBuffer: false, alpha: false });
         this.active = false;
+        this.animationId = null; // لتتبع الحلقة وإيقافها
         
-        if (!this.gl) {
-            console.warn("WebGL not supported. Ambient light disabled.");
-            return;
-        }
+        if (!this.gl) { console.warn("WebGL disabled."); return; }
         this.initShaders();
         this.initBuffers();
         this.resize();
+        // تحديث الحجم عند تغيير حجم النافذة
+        window.addEventListener('resize', () => this.resize());
     }
 
     initShaders() {
@@ -30,16 +30,16 @@ class AmbientEngine {
                 vTexCoord.y = 1.0 - vTexCoord.y;
             }
         `;
-        // Fragment shader: Read texture, heavy blur simulation via lower resolution sampling + saturation boost
+        // Shader بسيط جداً للأداء، الاعتماد الكلي على CSS Blur
         const fsSource = `
             precision mediump float;
             varying vec2 vTexCoord;
             uniform sampler2D uTexture;
             void main() {
                 vec4 color = texture2D(uTexture, vTexCoord);
-                // Boost saturation
+                // زيادة التشبع (Saturation) فقط
                 float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-                vec3 satColor = mix(vec3(gray), color.rgb, 1.6);
+                vec3 satColor = mix(vec3(gray), color.rgb, 1.8);
                 gl_FragColor = vec4(satColor, 1.0);
             }
         `;
@@ -58,7 +58,6 @@ class AmbientEngine {
     }
 
     initBuffers() {
-        // Full screen quad
         const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
         const buffer = this.gl.createBuffer();
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer);
@@ -67,7 +66,6 @@ class AmbientEngine {
         this.gl.enableVertexAttribArray(position);
         this.gl.vertexAttribPointer(position, 2, this.gl.FLOAT, false, 0, 0);
 
-        // Texture
         this.texture = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
@@ -77,17 +75,22 @@ class AmbientEngine {
     }
 
     resize() {
-        this.canvas.width = window.innerWidth / 4; // Low res for performance & natural blur
-        this.canvas.height = window.innerHeight / 4;
+        // حجم صغير جداً للأداء، والـ CSS Blur سيقوم بتنعيمه
+        this.canvas.width = 64; 
+        this.canvas.height = 36;
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     }
 
     start() {
+        if (this.active) return;
         this.active = true;
         this.loop();
     }
 
-    stop() { this.active = false; }
+    stop() {
+        this.active = false;
+        if (this.animationId) cancelAnimationFrame(this.animationId);
+    }
 
     loop() {
         if (!this.active) return;
@@ -96,17 +99,13 @@ class AmbientEngine {
                 this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
                 this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGB, this.gl.RGB, this.gl.UNSIGNED_BYTE, this.video);
                 this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
-            } catch(e) {
-                // Handle potential CORS issues gracefully
-                this.stop(); 
-                console.log("WebGL Security/CORS stop.");
-            }
+            } catch(e) { this.stop(); }
         }
-        requestAnimationFrame(() => this.loop());
+        this.animationId = requestAnimationFrame(() => this.loop());
     }
 }
 
-// --- 2. Advanced Audio Engine (Spatial & Cinema DSP) ---
+// --- 2. Advanced Audio Engine (Stereo Widening & Smart DSP) ---
 class AudioEngine {
     constructor(videoElement) {
         this.video = videoElement;
@@ -119,29 +118,39 @@ class AudioEngine {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         this.ctx = new AudioCtx();
         
-        // Source
         this.nodes.source = this.ctx.createMediaElementSource(this.video);
         this.nodes.gain = this.ctx.createGain();
-        
-        // Spatial Audio Setup (Panner)
-        this.nodes.panner = this.ctx.createStereoPanner();
-        this.nodes.osc = this.ctx.createOscillator();
-        this.nodes.oscGain = this.ctx.createGain();
-        this.nodes.osc.type = 'sine';
-        this.nodes.osc.frequency.value = 0.1; // Slow movement
-        this.nodes.oscGain.gain.value = 0; // Off by default
-        this.nodes.osc.connect(this.nodes.oscGain);
-        this.nodes.oscGain.connect(this.nodes.panner.pan);
-        this.nodes.osc.start();
 
-        // Dialogue Boost (Compressor)
+        // 1. Stereo Widening (Haas Effect) بدلاً من Panner المتحرك
+        this.nodes.splitter = this.ctx.createChannelSplitter(2);
+        this.nodes.merger = this.ctx.createChannelMerger(2);
+        this.nodes.delay = this.ctx.createDelay();
+        this.nodes.delay.delayTime.value = 0; // افتراضياً معطل
+
+        // 2. Smart Compressor (إعدادات هادئة لا تسبب الضجيج)
         this.nodes.compressor = this.ctx.createDynamicsCompressor();
-        this.nodes.compressor.threshold.value = 0; // Off
+        this.nodes.compressor.threshold.value = -24; // كان -50 (مشوه)
+        this.nodes.compressor.knee.value = 30;
+        this.nodes.compressor.ratio.value = 1; // 1 = معطل
+        this.nodes.compressor.attack.value = 0.003;
+        this.nodes.compressor.release.value = 0.25;
 
-        // Graph: Source -> Compressor -> Panner -> Gain -> Dest
+        // Routing Graph:
+        // Source -> Compressor -> Splitter
+        // Left -> Merger Left
+        // Right -> Delay -> Merger Right
+        // Merger -> Gain -> Destination
+        
         this.nodes.source.connect(this.nodes.compressor);
-        this.nodes.compressor.connect(this.nodes.panner);
-        this.nodes.panner.connect(this.nodes.gain);
+        this.nodes.compressor.connect(this.nodes.splitter);
+        
+        // القناة اليسرى تمر مباشرة
+        this.nodes.splitter.connect(this.nodes.merger, 0, 0);
+        // القناة اليمنى تمر عبر التأخير (Delay)
+        this.nodes.splitter.connect(this.nodes.delay, 1); 
+        this.nodes.delay.connect(this.nodes.merger, 0, 1);
+        
+        this.nodes.merger.connect(this.nodes.gain);
         this.nodes.gain.connect(this.ctx.destination);
     }
 
@@ -151,37 +160,40 @@ class AudioEngine {
 
     toggleSpatial(enable) {
         if (!this.ctx) this.init();
-        // Ramp value to avoid clicking
-        const now = this.ctx.currentTime;
-        this.nodes.oscGain.gain.setTargetAtTime(enable ? 0.5 : 0, now, 0.5);
+        // تأخير 20ms يخلق شعوراً بالاتساع المذهل دون دوار
+        const delayTime = enable ? 0.02 : 0;
+        this.nodes.delay.delayTime.setTargetAtTime(delayTime, this.ctx.currentTime, 0.5);
     }
 
     toggleDialogueBoost(enable) {
         if (!this.ctx) this.init();
         const now = this.ctx.currentTime;
-        // Aggressive compression for speech clarity
-        this.nodes.compressor.threshold.setTargetAtTime(enable ? -50 : 0, now, 0.2);
-        this.nodes.compressor.ratio.setTargetAtTime(enable ? 12 : 1, now, 0.2);
-        // Makeup gain
-        this.nodes.gain.gain.setTargetAtTime(enable ? 1.5 : 1, now, 0.2); 
+        // ضغط ناعم لرفع الصوت الخافت
+        this.nodes.compressor.ratio.setTargetAtTime(enable ? 4 : 1, now, 0.2);
+        this.nodes.gain.gain.setTargetAtTime(enable ? 1.5 : 1, now, 0.2);
     }
 }
 
-// --- 3. Gesture Controller (Touch & Mouse) ---
+// --- 3. Gesture Controller (Mouse + Touch Support) ---
 class GestureController {
     constructor(element, callbacks) {
         this.element = element;
-        this.cbs = callbacks; // { onSeek, onVolume, onBright }
+        this.cbs = callbacks; 
         this.startX = 0;
         this.startY = 0;
-        this.touchStartTime = 0;
         this.isDragging = false;
         
+        // Touch Events
         this.element.addEventListener('touchstart', this.onStart.bind(this), {passive: false});
         this.element.addEventListener('touchmove', this.onMove.bind(this), {passive: false});
         this.element.addEventListener('touchend', this.onEnd.bind(this));
-        
-        // Double click detection
+
+        // Mouse Events (دعم الكمبيوتر)
+        this.element.addEventListener('mousedown', this.onMouseDown.bind(this));
+        window.addEventListener('mousemove', this.onMouseMove.bind(this)); // Window لسلاسة السحب
+        window.addEventListener('mouseup', this.onMouseUp.bind(this));
+
+        // Double Click
         this.lastClick = 0;
         this.element.addEventListener('click', (e) => {
              const now = Date.now();
@@ -192,24 +204,32 @@ class GestureController {
         });
     }
 
-    onStart(e) {
-        this.startX = e.touches[0].clientX;
-        this.startY = e.touches[0].clientY;
-        this.touchStartTime = Date.now();
+    // موحد (للفأرة واللمس)
+    getCoord(e) {
+        return e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY };
+    }
+
+    onStart(e) { this.startDrag(this.getCoord(e)); }
+    onMouseDown(e) { this.isMouseDown = true; this.startDrag(this.getCoord(e)); }
+
+    startDrag(pos) {
+        this.startX = pos.x;
+        this.startY = pos.y;
         this.isDragging = false;
     }
 
-    onMove(e) {
-        e.preventDefault(); // Prevent scroll
-        const diffX = e.touches[0].clientX - this.startX;
-        const diffY = this.startY - e.touches[0].clientY; // Up is positive
+    onMove(e) { e.preventDefault(); this.processMove(this.getCoord(e)); }
+    onMouseMove(e) { if(this.isMouseDown) { e.preventDefault(); this.processMove(this.getCoord(e)); } }
+
+    processMove(pos) {
+        const diffX = pos.x - this.startX;
+        const diffY = this.startY - pos.y;
         
         if (Math.abs(diffX) > 10 || Math.abs(diffY) > 10) this.isDragging = true;
         
-        // Vertical Swipe
         if (this.isDragging && Math.abs(diffY) > Math.abs(diffX)) {
             const sensitivity = 0.01;
-            // Left side: Brightness, Right side: Volume
+            // Left: Brightness, Right: Volume
             if (this.startX < window.innerWidth / 2) {
                 if (this.cbs.onBright) this.cbs.onBright(diffY * sensitivity);
             } else {
@@ -218,14 +238,12 @@ class GestureController {
         }
     }
 
-    onEnd(e) {
-        // Reset Logic
-    }
+    onEnd(e) { this.isDragging = false; }
+    onMouseUp(e) { this.isMouseDown = false; this.isDragging = false; }
 
     handleDoubleTap(e) {
         const width = this.element.clientWidth;
-        const x = e.offsetX; // Relative to element
-        // Left 30%: Seek Back, Right 30%: Seek Forward
+        const x = e.offsetX;
         if (x < width * 0.3) this.cbs.onSeek(-10);
         else if (x > width * 0.7) this.cbs.onSeek(10);
         else if (this.cbs.onToggle) this.cbs.onToggle();
@@ -243,22 +261,17 @@ class WebPlayerPro {
             isPlaying: false,
             volume: 1,
             brightness: 1,
-            notes: [],
+            notes: [], // سيتم تحميلها من الذاكرة
             isAddingNote: false,
             settings: { theater: false, eco: false }
         };
 
-        // Initialize Modules
         this.audioEngine = new AudioEngine(this.video);
         this.ambientEngine = new AmbientEngine(document.getElementById('ambientCanvas'), this.video);
         
         this.init();
         this.setupGestures();
         this.initHLS();
-        this.initVTT(); // Standard Track Support
-        
-        // Simulated AI Model Loader
-        setTimeout(() => this.loadAIModels(), 2000);
     }
 
     cacheDOM() {
@@ -275,16 +288,24 @@ class WebPlayerPro {
             overlay: document.getElementById('brightnessOverlay'),
             spatialLayer: document.getElementById('spatialNotesLayer'),
             skipIntro: document.getElementById('skipIntroBtn'),
-            // Menus
             settingsBtn: document.getElementById('settingsBtn'),
             colorBtn: document.getElementById('colorBtn')
         };
     }
 
     init() {
-        // Playback Events
-        this.ui.playBtn.onclick = () => this.togglePlay();
-        this.ui.bigPlayBtn.onclick = () => this.togglePlay();
+        // 1. استرجاع الملاحظات المحفوظة (Persistence)
+        const savedNotes = localStorage.getItem('player_notes');
+        if (savedNotes) {
+            this.state.notes = JSON.parse(savedNotes);
+            this.state.notes.forEach(n => this.renderNotePin(n));
+            this.updateNotesList();
+        }
+
+        // 2. Playback Events
+        const toggleHandler = () => this.togglePlay();
+        this.ui.playBtn.onclick = toggleHandler;
+        this.ui.bigPlayBtn.onclick = toggleHandler;
         
         this.video.addEventListener('play', () => {
             this.state.isPlaying = true;
@@ -292,31 +313,38 @@ class WebPlayerPro {
             this.ui.playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
             this.ambientEngine.start();
         });
-        
         this.video.addEventListener('pause', () => {
             this.state.isPlaying = false;
             this.container.classList.add('paused');
             this.ui.playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-            if(this.state.settings.eco) this.ambientEngine.stop();
+            // توفير البطارية: إيقاف المحرك فوراً
+            this.ambientEngine.stop(); 
         });
-
         this.video.addEventListener('timeupdate', () => this.updateProgress());
         this.video.addEventListener('loadedmetadata', () => {
             this.ui.durationDisplay.innerText = this.formatTime(this.video.duration);
         });
 
-        // Volume
+        // 3. إصلاح شريط التقدم (Click to Scrub)
+        this.ui.progressArea.addEventListener('click', (e) => {
+            const rect = this.ui.progressArea.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const pct = clickX / rect.width;
+            if(isFinite(this.video.duration)) {
+                this.video.currentTime = pct * this.video.duration;
+            }
+        });
+
         this.ui.volumeSlider.addEventListener('input', (e) => {
             this.video.volume = e.target.value;
             this.audioEngine.setVolume(e.target.value);
         });
 
-        // Menus
         this.setupMenus();
         this.setupSidePanel();
         this.setupSpatialNotes();
         this.setupColorGrading();
-        
+
         // Keyboard
         document.addEventListener('keydown', (e) => {
             if(e.code === 'Space') { e.preventDefault(); this.togglePlay(); }
@@ -331,6 +359,26 @@ class WebPlayerPro {
             if(!document.fullscreenElement) this.container.requestFullscreen();
             else document.exitFullscreen();
         };
+
+        // الذكاء الاصطناعي (Lazy Load)
+        document.getElementById('aiSearchInput').addEventListener('focus', () => {
+            this.injectAIScripts(); // حمل الملفات فقط عندما يريد المستخدم البحث
+        });
+    }
+
+    injectAIScripts() {
+        if (window.tf) return; // تم التحميل سابقاً
+        this.showToast("جاري تحميل محرك الذكاء الاصطناعي...");
+        const scripts = [
+            "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs",
+            "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"
+        ];
+        scripts.forEach(src => {
+            const s = document.createElement('script');
+            s.src = src;
+            s.async = true;
+            document.head.appendChild(s);
+        });
     }
 
     initHLS() {
@@ -339,9 +387,7 @@ class WebPlayerPro {
             const hls = new Hls({ enableWorker: true });
             hls.loadSource(source);
             hls.attachMedia(this.video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                document.getElementById('spinner').style.display = 'none';
-            });
+            hls.on(Hls.Events.MANIFEST_PARSED, () => document.getElementById('spinner').style.display = 'none');
         } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
             this.video.src = source;
         }
@@ -350,7 +396,7 @@ class WebPlayerPro {
     togglePlay() {
         if (this.video.paused) {
             this.video.play().catch(e => console.log("Autoplay blocked"));
-            this.audioEngine.init(); // Resume Context
+            this.audioEngine.init();
         } else {
             this.video.pause();
         }
@@ -365,13 +411,14 @@ class WebPlayerPro {
             this.fbTimer = setTimeout(() => feedback.classList.remove('show'), 600);
         };
 
-        new GestureController(this.ui.bigPlayBtn.parentElement, {
+        // استخدام الـ Wrapper للتحكم بدلاً من الزر فقط ليشمل الشاشة كاملة
+        new GestureController(document.querySelector('.player-container'), {
             onSeek: (dt) => {
                 this.video.currentTime += dt;
                 showFb(dt > 0 ? '⏩ +10s' : '⏪ -10s');
             },
             onVolume: (delta) => {
-                let v = this.video.volume + (delta * 0.1); // Sensitivity
+                let v = this.video.volume + (delta * 0.1);
                 v = Math.max(0, Math.min(1, v));
                 this.video.volume = v;
                 this.ui.volumeSlider.value = v;
@@ -381,7 +428,6 @@ class WebPlayerPro {
                 this.state.brightness += (delta * 0.1);
                 this.state.brightness = Math.max(0.3, Math.min(1.5, this.state.brightness));
                 this.ui.overlay.style.backgroundColor = `rgba(0,0,0,${1 - (this.state.brightness / 1.5)})`; 
-                // Simple overlay opacity hack for brightness
                 showFb(`☀ ${Math.round(this.state.brightness * 100)}%`);
             },
             onToggle: () => this.togglePlay()
@@ -389,7 +435,6 @@ class WebPlayerPro {
     }
 
     setupSpatialNotes() {
-        // Toggle "Add Note" mode
         document.getElementById('addNoteBtn').onclick = () => {
             this.state.isAddingNote = !this.state.isAddingNote;
             const btn = document.getElementById('addNoteBtn');
@@ -398,7 +443,6 @@ class WebPlayerPro {
             this.container.style.cursor = this.state.isAddingNote ? 'crosshair' : 'default';
         };
 
-        // Click on video layer to add pin
         this.ui.spatialLayer.onclick = (e) => {
             if (!this.state.isAddingNote) return;
             const rect = this.ui.spatialLayer.getBoundingClientRect();
@@ -406,19 +450,23 @@ class WebPlayerPro {
             const y = ((e.clientY - rect.top) / rect.height) * 100;
             const time = this.video.currentTime;
 
-            this.addSpatialNote(x, y, time);
-            
+            // حفظ الملاحظة
+            const noteData = { x, y, time, id: Date.now() };
+            this.state.notes.push(noteData);
+            localStorage.setItem('player_notes', JSON.stringify(this.state.notes)); // حفظ دائم
+
+            this.renderNotePin(noteData);
+            this.updateNotesList();
+
             // Reset Mode
             this.state.isAddingNote = false;
-            document.getElementById('addNoteBtn').click(); // Toggle off
+            document.getElementById('addNoteBtn').click();
             this.showToast('تم تثبيت الملاحظة بنجاح 📌');
         };
 
-        // Render loop for notes visibility (show only near timestamp)
         this.video.addEventListener('timeupdate', () => {
             document.querySelectorAll('.spatial-pin').forEach(pin => {
                 const pinTime = parseFloat(pin.dataset.time);
-                // Show if within 2 seconds of the note time
                 if (Math.abs(this.video.currentTime - pinTime) < 2) {
                     pin.style.display = 'block';
                 } else {
@@ -428,44 +476,42 @@ class WebPlayerPro {
         });
     }
 
-    addSpatialNote(x, y, time) {
-        // Add to DOM
+    renderNotePin(note) {
         const pin = document.createElement('div');
         pin.className = 'spatial-pin';
-        pin.style.left = `${x}%`;
-        pin.style.top = `${y}%`;
-        pin.dataset.time = time;
-        pin.title = `ملاحظة عند ${this.formatTime(time)}`;
-        
+        pin.style.left = `${note.x}%`;
+        pin.style.top = `${note.y}%`;
+        pin.dataset.time = note.time;
+        pin.title = `ملاحظة عند ${this.formatTime(note.time)}`;
         pin.onclick = (e) => {
             e.stopPropagation();
-            this.showToast(`ملاحظة: محتوى تجريبي عند ${this.formatTime(time)}`);
+            this.showToast(`ملاحظة محفوظة عند ${this.formatTime(note.time)}`);
         };
-        
         this.ui.spatialLayer.appendChild(pin);
+    }
 
-        // Add to List
+    updateNotesList() {
         const list = document.getElementById('notesList');
-        const item = document.createElement('div');
-        item.className = 'chapter-item'; // Reuse class
-        item.innerHTML = `<div class="chapter-info"><h4>ملاحظة ${this.state.notes.length + 1}</h4><p>${this.formatTime(time)}</p></div>`;
-        item.onclick = () => { this.video.currentTime = time; };
-        list.appendChild(item);
-        
-        this.state.notes.push({ x, y, time });
+        list.innerHTML = '';
+        this.state.notes.forEach((note, index) => {
+            const item = document.createElement('div');
+            item.className = 'chapter-item'; // Reuse styling
+            item.style.padding = '10px';
+            item.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+            item.style.cursor = 'pointer';
+            item.innerHTML = `<div class="chapter-info"><h4 style="color:#fff">ملاحظة ${index + 1}</h4><p style="color:#aaa">${this.formatTime(note.time)}</p></div>`;
+            item.onclick = () => { this.video.currentTime = note.time; };
+            list.appendChild(item);
+        });
     }
 
     setupColorGrading() {
         const options = document.querySelectorAll('#colorMenu li[data-lut]');
         options.forEach(opt => {
             opt.onclick = () => {
-                // UI Update
                 options.forEach(o => o.classList.remove('active'));
                 opt.classList.add('active');
-                
-                // Remove all lut classes
                 this.video.classList.remove('lut-warm', 'lut-cool', 'lut-bw', 'lut-vintage');
-                
                 const lut = opt.dataset.lut;
                 if (lut !== 'none') {
                     this.video.classList.add(`lut-${lut}`);
@@ -475,16 +521,13 @@ class WebPlayerPro {
         });
     }
 
-    // --- Helpers & Logic ---
     updateProgress() {
         const cur = this.video.currentTime;
         const dur = this.video.duration || 1;
         const pct = (cur / dur) * 100;
-        
         this.ui.progressBar.style.width = `${pct}%`;
         this.ui.timeDisplay.innerText = this.formatTime(cur);
-
-        // Intro Skip Logic (Mock)
+        
         if (cur > 10 && cur < 15) this.ui.skipIntro.classList.add('show');
         else this.ui.skipIntro.classList.remove('show');
     }
@@ -503,7 +546,6 @@ class WebPlayerPro {
     }
 
     setupMenus() {
-        // Generic Toggle
         const toggle = (btnId, menuId) => {
             const btn = document.getElementById(btnId);
             const menu = document.getElementById(menuId);
@@ -515,7 +557,6 @@ class WebPlayerPro {
         toggle('settingsBtn', 'settingsMenu');
         toggle('colorBtn', 'colorMenu');
 
-        // Settings Items
         const setupToggle = (id, action) => {
             document.getElementById(id).onclick = function() {
                 const span = this.querySelector('span');
@@ -528,20 +569,17 @@ class WebPlayerPro {
 
         setupToggle('spatialAudioToggle', (v) => { 
             this.audioEngine.toggleSpatial(v);
-            this.showToast(`الصوت المكاني: ${v ? 'مفعل' : 'معطل'}`);
+            this.showToast(`توسيع الستيريو: ${v ? 'مفعل' : 'معطل'}`);
         });
-
         setupToggle('dialogueBoostToggle', (v) => { 
             this.audioEngine.toggleDialogueBoost(v);
             this.showToast(`تعزيز الحوار: ${v ? 'مفعل' : 'معطل'}`);
         });
-
         setupToggle('theaterModeToggle', (v) => { 
             document.body.classList.toggle('immersive-mode', v);
             this.showToast(v ? 'وضع المسرح' : 'الوضع العادي');
         });
 
-        // Speed
         document.querySelectorAll('[data-speed]').forEach(sp => {
             sp.onclick = () => {
                 this.video.playbackRate = parseFloat(sp.dataset.speed);
@@ -550,7 +588,6 @@ class WebPlayerPro {
             };
         });
 
-        // Close menus on click outside
         window.onclick = (e) => {
             if (!e.target.closest('.dropdown-container')) {
                 document.querySelectorAll('.dropdown-menu, .settings-menu').forEach(m => m.classList.remove('show'));
@@ -562,8 +599,6 @@ class WebPlayerPro {
         const panel = document.getElementById('sidePanel');
         document.getElementById('sidePanelBtn').onclick = () => panel.classList.add('open');
         document.getElementById('closeSidePanelBtn').onclick = () => panel.classList.remove('open');
-        
-        // Tabs
         const tabs = document.querySelectorAll('.tab-btn');
         tabs.forEach(t => {
             t.onclick = () => {
@@ -574,53 +609,8 @@ class WebPlayerPro {
             };
         });
     }
-
-    initVTT() {
-        // Fallback Mock Data if tracks fail to load
-        const mockTranscript = [
-            { t: 0, text: "أهلاً بكم في الإصدار الأسطوري." },
-            { t: 5, text: "هذا المشغل يستخدم WebGL." },
-            { t: 10, text: "يمكنك إضافة ملاحظات مكانية هنا." }
-        ];
-        
-        const container = document.getElementById('transcriptBody');
-        mockTranscript.forEach(line => {
-            const span = document.createElement('span');
-            span.innerText = line.text + " ";
-            span.onclick = () => this.video.currentTime = line.t;
-            container.appendChild(span);
-        });
-
-        // Search Mock
-        document.getElementById('aiSearchInput').addEventListener('keyup', (e) => {
-            const term = e.target.value.toLowerCase();
-            if(e.key === 'Enter') {
-                this.showToast(`جاري البحث بالذكاء الاصطناعي عن: ${term}...`);
-                // Simulate AI search latency
-                setTimeout(() => {
-                    this.showToast(`تم العثور على "${term}" في الدقيقة 00:15`);
-                    this.video.currentTime = 15;
-                }, 1000);
-            }
-        });
-    }
-
-    async loadAIModels() {
-        try {
-            // Check if TF is loaded
-            if (window.tf && window.cocoSsd) {
-                console.log("Loading AI Vision Model...");
-                this.model = await cocoSsd.load();
-                console.log("AI Model Ready.");
-                this.showToast("🚀 الذكاء الاصطناعي جاهز للتحليل");
-            }
-        } catch (e) {
-            console.log("AI Model lazy load skipped.");
-        }
-    }
 }
 
-// Start
 document.addEventListener('DOMContentLoaded', () => {
     window.player = new WebPlayerPro('playerContainer');
 });
